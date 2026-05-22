@@ -10,3 +10,5 @@ build/
 *.egg
 .venv/
 venv/
+.omc/
+uv.lock
