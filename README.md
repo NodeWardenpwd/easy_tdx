@@ -113,7 +113,46 @@ easy-tdx indicator MACD -m SH -c 600519 --period 5MIN --count 50
 easy-tdx indicator RSI -m SZ -c 000001 --no-ohlcv
 ```
 
-支持 30 个指标：MACD, KDJ, RSI, BOLL, DMI, ATR, WR, CCI, BIAS, OBV, VR, EMV, MFI, BRAR, ASI, TRIX, DPO, MTM, ROC, EXPMA, BBI, PSY, DFMA, CR, KTN, XSII, MASS, TAQ。
+### 捉妖大师（重点）
+
+捉妖大师是多周期涨幅共振指标，通过 20/60/120 日涨幅及指数平滑判断短中长线趋势是否同向，用于筛选趋势刚启动的强势股。
+
+```bash
+easy-tdx indicator ZHUOYAO -m SH -c 600519 --count 30 --table
+
+# 自定义周期参数
+easy-tdx indicator ZHUOYAO -m SZ -c 000001 --params N1=90,N2=45,N3=15
+
+# 结合其他指标一起看
+easy-tdx indicator ZHUOYAO,MACD,KDJ -m SH -c 600519 --count 20 --table
+```
+
+输出列说明：
+
+| 列名 | 含义 |
+|------|------|
+| `ZY_LONG` | 长线 — 120 日涨幅的 10 日指数平滑 |
+| `ZY_MID` | 中线 — 60 日涨幅(%) |
+| `ZY_SHORT` | 短线 — 20 日涨幅(%) |
+| `ZY_TREND` | 趋势 — 中线的 10 日指数平滑 |
+
+**核心信号：** 四线全部 > 0 且短线 > 中线 > 长线 = 短中长趋势完全一致向上，是强势股特征。详见 [捉妖大师指标详解](docs/indicator-zhuoyao.md)。
+
+```python
+# Python API 用法
+from easy_tdx import MacClient, Market
+
+with MacClient.from_best_host() as c:
+    df = c.get_stock_kline_with_indicators(
+        Market.SH, "600519",
+        indicators=["ZHUOYAO"],
+        count=30,
+    )
+    # df 包含: datetime, open, close, high, low, vol, amount
+    #         + ZY_LONG, ZY_MID, ZY_SHORT, ZY_TREND
+```
+
+支持 30 个指标：MACD, KDJ, RSI, BOLL, DMI, ATR, WR, CCI, BIAS, OBV, VR, EMV, MFI, BRAR, ASI, TRIX, DPO, MTM, ROC, EXPMA, BBI, PSY, DFMA, CR, KTN, XSII, MASS, TAQ, ZHUOYAO。
 
 ### 财务
 
@@ -155,7 +194,7 @@ easy-tdx ex tick HK_MAIN_BOARD 00700 --table               # 港股分时
 | `market-stat` | 全市场涨跌统计 |
 | `server-info` | 服务器交易时段 |
 | `symbol-info` | 个股特征快照 |
-| `indicator` | 技术指标计算（30 个：MACD/KDJ/RSI/BOLL/DMI/ATR...） |
+| `indicator` | 技术指标计算（31 个：MACD/KDJ/RSI/BOLL/DMI/ATR...） |
 | `indicator-list` | 列出可用技术指标 |
 | `f10` | F10 公司信息 |
 | `fund-flow` | 历史资金流向 |
@@ -255,7 +294,7 @@ with MacClient.from_best_host() as c:
         print(info["name"], info["description"], info["outputs"])
 ```
 
-支持 30 个技术指标：
+支持 31 个技术指标：
 
 | 指标 | 输入 | 输出列 |
 |------|------|--------|
@@ -287,6 +326,7 @@ with MacClient.from_best_host() as c:
 | XSII | close, high, low | XSII_TD1, XSII_TD2, XSII_TD3, XSII_TD4 |
 | MASS | high, low | MASS, MASS_MA |
 | TAQ | high, low | TAQ_UP, TAQ_MID, TAQ_DOWN |
+| ZHUOYAO | close | ZY_LONG, ZY_MID, ZY_SHORT, ZY_TREND |
 
 #### 分时
 
@@ -590,7 +630,7 @@ src/easy_tdx/
 ├── client.py          # TdxClient / AsyncTdxClient（标准协议）
 ├── unified.py         # UnifiedTdxClient（统一入口）
 ├── config.py          # 服务器地址、端口、超时配置
-├── indicator.py       # 技术指标计算（30 个，基于 MyTT）
+├── indicator.py       # 技术指标计算（31 个，基于 MyTT）
 ├── MyTT.py            # 麦语言技术指标算法库
 ├── mac/
 │   ├── client.py      # MacClient / AsyncMacClient（MAC 协议）
@@ -633,6 +673,15 @@ ruff format --check src/ tests/                              # format check
 详见 [NOTICE](NOTICE) 和 [LICENSE](LICENSE)。
 
 ## Changelog
+
+### 1.4.1 (2026-05-28)
+
+**捉妖大师指标** — 新增 ZHUOYAO 多周期涨幅共振指标，通过 20/60/120 日涨幅及指数平滑判断短中长线趋势是否同向，用于筛选趋势刚启动的强势股。
+
+- 新增 `ZHUOYAO` 指标：输出 ZY_LONG/ZY_MID/ZY_SHORT/ZY_TREND 四条线
+- CLI: `easy-tdx indicator ZHUOYAO -m SH -c 600519 --table`
+- Python API: `indicators=["ZHUOYAO"]`
+- 详见 [捉妖大师指标详解](docs/indicator-zhuoyao.md)
 
 ### 1.4.0 (2026-05-28)
 

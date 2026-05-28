@@ -177,6 +177,16 @@ _reg(
     "ASI 振动升降指标",
 )
 
+# ── 捉妖大师（仅需 close）─────────────────────────────────────────────
+_reg(
+    "ZHUOYAO",
+    ("close",),
+    ("ZY_LONG", "ZY_MID", "ZY_SHORT", "ZY_TREND"),
+    MyTT.ZHUOYAO,
+    {"N1": 120, "N2": 60, "N3": 20, "M": 10},
+    "ZHUOYAO 捉妖大师 多周期涨幅共振",
+)
+
 # ── 仅需 high + low ────────────────────────────────────────────────────
 _reg(
     "TAQ", ("high", "low"), ("TAQ_UP", "TAQ_MID", "TAQ_DOWN"), MyTT.TAQ, {"N": 20}, "TAQ 唐安奇通道"
