@@ -937,6 +937,16 @@ ruff format --check src/ tests/                              # format check
 
 ## Changelog
 
+### 1.7.1 (2026-06-08)
+
+**Bug 修复** — 修复缠论笔计算在持续下跌/上涨走势中因"分型陷阱"导致近期笔丢失的问题。
+
+- 修复 `find_bis()` 贪心算法在密集交替分型场景下提前终止的 bug
+- 根因：当异类型分型 gap=0 时，算法仍用更极端的同类型分型替换 start_fx，导致 right_kline_index 不断前推，后续所有异类型分型 gap 永远为 0
+- 新增 `pending_opposite` 保护机制：存在未配对异类型分型时冻结替换，保留 start_fx 较前位置
+- 影响范围：持续下跌/上涨中的高价股（如贵州茅台）或分型密度高的股票
+- 新增回归测试 `test_fractal_trap_regression`
+
 ### 1.7.0 (2026-06-07)
 
 **缠论技术分析模块** — 新增完整的缠论（ChanLun）计算引擎，通过 CLI 和 Python API 提供个股缠论分析。

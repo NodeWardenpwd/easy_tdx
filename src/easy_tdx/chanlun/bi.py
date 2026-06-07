@@ -46,11 +46,16 @@ def find_bis(
 ) -> list[BI]:
     """从分型列表中计算笔。
 
-    算法（贪心）：
-    1. 遍历分型列表，维护最后一个有效分型
-    2. 如果当前分型与最后一个有效分型可以成笔，形成新笔
-    3. 如果当前分型与最后一个有效分型同类型（同为顶或同为底），
-       取更极端的那个替换（顶取更高的，底取更低的）
+    算法（贪心，带 pending 保护）：
+    1. 遍历分型列表，维护最后一个有效分型（start_fx）
+    2. 如果当前分型与 start_fx 可以成笔，形成新笔
+    3. 如果当前分型与 start_fx 同类型，取更极端的替换（顶取更高，底取更低）
+    4. 如果当前分型与 start_fx 异类型但 gap 不够，记录为 pending_opposite
+    5. 当存在 pending_opposite 时，不替换 start_fx，保留其在较前的位置，
+       使后续异类型分型自然满足 gap 要求（避免"分型陷阱"）
+
+    "分型陷阱"场景：持续下跌/上涨中，密集交替分型导致每次替换 start_fx
+    都把 right_kline_index 前推，使下一个异类型分型的 gap 永远为 0。
 
     Args:
         fxs: 分型列表
@@ -69,12 +74,20 @@ def find_bis(
 
     # 用一个指针追踪当前笔的起始分型
     start_fx = fxs[0]
+    # 记录最近一个因 gap 不足而跳过的异类型分型
+    pending_opposite: FX | None = None
 
     for i in range(1, len(fxs)):
         current_fx = fxs[i]
 
         # 同类型分型：取更极端的
         if current_fx.fx_type == start_fx.fx_type:
+            # 当存在 pending_opposite 时，不替换 start_fx。
+            # 保留 start_fx 在较早位置，让后续异类型分型有机会满足 gap。
+            # 若替换，right_kline_index 前推会导致 gap 反复为 0，卡死算法。
+            if pending_opposite is not None:
+                continue
+
             if start_fx.fx_type == FXType.DING and current_fx.val > start_fx.val:
                 start_fx = current_fx
             elif start_fx.fx_type == FXType.DI and current_fx.val < start_fx.val:
@@ -97,6 +110,9 @@ def find_bis(
             )
             bis.append(bi)
             start_fx = current_fx
-        # 如果不能成笔（间距不够），继续搜索
+            pending_opposite = None
+        else:
+            # gap 不够，记录为 pending
+            pending_opposite = current_fx
 
     return bis
