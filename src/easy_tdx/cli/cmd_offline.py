@@ -1,15 +1,25 @@
-"""离线本地数据读取命令（无需网络，读取本地通达信数据文件）。"""
+"""离线本地数据读写命令 —— 读取本地通达信数据文件 & 从服务端同步写入。"""
 
 from __future__ import annotations
 
+from pathlib import Path
+from typing import TYPE_CHECKING
+
 import click
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from ..client import TdxClient
+    from ..models.bar import SecurityBar
 
 
 @click.group()
 def offline() -> None:
-    """离线本地数据读取（无需网络，读取本地通达信数据文件）。
+    """离线本地数据读写（读取本地通达信数据文件 & 从服务端同步写入）。
 
-    需要本地已安装通达信并下载过对应数据。
+    读取需要本地已安装通达信并下载过对应数据。
+    sync-daily 可从服务端获取最新日线并追加到本地 .day 文件。
 
     示例：
 
@@ -22,6 +32,10 @@ def offline() -> None:
       easy-tdx offline ex-files --table
 
       easy-tdx offline ex-daily 29#A1801 --table
+
+      easy-tdx offline sync-daily SZ 000001
+
+      easy-tdx offline sync-daily SH 600519 --vipdoc C:\\new_jyplug\\vipdoc
     """
     pass
 
@@ -412,3 +426,238 @@ def blocks(
         for b in result
     ]
     print_output(pd.DataFrame(rows), fmt)
+
+
+# ---------------------------------------------------------------------------
+# sync-daily：从服务端同步日线到本地 .day 文件
+# ---------------------------------------------------------------------------
+
+
+def _df_to_bars(df: pd.DataFrame) -> list[SecurityBar]:
+    """将日线 DataFrame 转换为 SecurityBar 列表（按日期升序）。"""
+    from ..models.bar import SecurityBar
+
+    bars: list[SecurityBar] = []
+    for _, row in df.iterrows():
+        dt = row["date"]
+        bars.append(
+            SecurityBar(
+                open=row["open"],
+                close=row["close"],
+                high=row["high"],
+                low=row["low"],
+                vol=row["vol"],
+                amount=row["amount"],
+                year=dt.year,
+                month=dt.month,
+                day=dt.day,
+                hour=0,
+                minute=0,
+            )
+        )
+    bars.sort(key=lambda b: b.year * 10000 + b.month * 100 + b.day)
+    return bars
+
+
+def _fetch_all_daily_bars(
+    client: TdxClient, market: int, code: str, need_full: bool = False
+) -> list[SecurityBar]:
+    """从服务端分页获取全部日线数据。
+
+    Args:
+        client: 已连接的 TdxClient。
+        market: 市场代码（0=SZ, 1=SH）。
+        code: 6 位股票代码。
+        need_full: True 表示拉取全量历史（空文件场景），
+                   False 表示只拉最近一页（增量更新）。
+
+    Returns:
+        SecurityBar 列表（按日期升序）。
+    """
+    from ..models.enums import KlineCategory
+
+    all_bars: list[SecurityBar] = []
+    start = 0
+    page_size = 800
+    max_pages = 50 if need_full else 1  # 50 页 = 40000 条，足够覆盖 A 股全部历史
+
+    for _ in range(max_pages):
+        df = client.get_security_bars(market, code, KlineCategory.DAY, start, page_size)
+        if df.empty:
+            break
+        all_bars.extend(_df_to_bars(df))
+        if len(df) < page_size:
+            break  # 最后一页不满，已无更多数据
+        start += page_size
+
+    # 去重并按日期升序排列（跨页可能有重叠）
+    seen: set[tuple[int, int, int]] = set()
+    unique: list[SecurityBar] = []
+    for b in all_bars:
+        key = (b.year, b.month, b.day)
+        if key not in seen:
+            seen.add(key)
+            unique.append(b)
+    unique.sort(key=lambda b: b.year * 10000 + b.month * 100 + b.day)
+    return unique
+
+
+def _sync_one_daily(client: TdxClient, filepath: Path) -> tuple[int, str]:
+    """同步单只股票日线，返回 (写入条数, 状态消息)。"""
+    from ..offline import append_daily_bars, get_last_bar_date
+    from ..offline.daily_bar import _SECURITY_COEFFICIENTS, _detect_security_type
+
+    # 文件名 → 市场 + 代码
+    name = filepath.name.lower()  # e.g. sh600000.day
+    exchange = name[:2]  # "sh" or "sz"
+    code = name[2:8]
+    market = 1 if exchange == "sh" else 0  # Market.SH=1, Market.SZ=0
+
+    # 判断是否需要全量拉取（空文件 → 全量，有数据 → 增量）
+    last_date = get_last_bar_date(filepath)
+    need_full = last_date is None
+
+    # 从服务端分页获取日线
+    bars = _fetch_all_daily_bars(client, market, code, need_full=need_full)
+    if not bars:
+        return 0, "服务端无数据"
+
+    # 检测证券类型获取系数
+    sec_type = _detect_security_type(filepath.name)
+    price_coeff, vol_coeff = _SECURITY_COEFFICIENTS.get(sec_type, (0.01, 0.01))
+
+    # 追加写入
+    written = append_daily_bars(filepath, bars, price_coeff, vol_coeff)
+    if written > 0:
+        return written, f"+{written}"
+    return 0, "已是最新"
+
+
+@offline.command("sync-daily")
+@click.argument("market")
+@click.argument("code")
+@click.option("--vipdoc", default=None, help="vipdoc 目录路径（默认自动检测）")
+def sync_daily(market: str, code: str, vipdoc: str | None) -> None:
+    """从服务端同步日线数据到本地 .day 文件。
+
+    自动检测本地文件末尾日期，从服务端分页获取缺失的数据并追加写入。
+    空文件自动全量下载，已有数据只做增量更新。
+    建议在通达信关闭时执行，避免文件被锁定。
+
+    MARKET: 市场代码（SZ/SH）
+    CODE: 6 位股票代码
+
+    示例：
+
+      easy-tdx offline sync-daily SZ 000001
+
+      easy-tdx offline sync-daily SH 000001 --vipdoc C:\\new_jyplug\\vipdoc
+    """
+    from ..client import TdxClient
+    from ..offline import find_daily_bar_file
+    from .output import print_error
+    from .parsers import parse_market
+
+    mkt = parse_market(market)
+
+    try:
+        filepath = find_daily_bar_file(mkt, code, vipdoc)
+        click.echo(f"目标文件: {filepath}")
+
+        click.echo("正在连接服务端获取日线数据...")
+        with TdxClient.from_best_host() as client:
+            written, msg = _sync_one_daily(client, filepath)
+
+        if written > 0:
+            click.echo(f"✓ 成功写入 {written} 条新记录")
+        else:
+            click.echo(f"本地已是最新，无需写入 ({msg})")
+
+    except PermissionError:
+        click.echo(f"✗ 文件被锁定，请关闭通达信后重试: {filepath}", err=True)
+        raise SystemExit(1)
+    except Exception as e:
+        print_error(str(e))
+        raise SystemExit(1)
+
+
+# ---------------------------------------------------------------------------
+# sync-all：一键同步全部日线
+# ---------------------------------------------------------------------------
+
+
+@offline.command("sync-all")
+@click.option("--vipdoc", default=None, help="vipdoc 目录路径（默认自动检测）")
+def sync_all(vipdoc: str | None) -> None:
+    """一键同步全部本地日线数据（沪深全市场）。
+
+    扫描 vipdoc 下所有 .day 文件，自动连接服务端获取最新数据并追加写入。
+    建议在通达信关闭时执行，避免文件被锁定。
+
+    示例：
+
+      easy-tdx offline sync-all
+
+      easy-tdx offline sync-all --vipdoc C:\\new_jyplug\\vipdoc
+    """
+    import time
+
+    from ..client import TdxClient
+    from ..offline.paths import resolve_vipdoc
+
+    try:
+        vipdoc_path = resolve_vipdoc(vipdoc)
+    except Exception as e:
+        click.echo(f"✗ {e}", err=True)
+        raise SystemExit(1)
+
+    # 1. 扫描所有 .day 文件
+    all_files: list[Path] = []
+    for exchange in ("sh", "sz"):
+        lday_dir = vipdoc_path / exchange / "lday"
+        if lday_dir.is_dir():
+            all_files.extend(sorted(lday_dir.glob("*.day")))
+
+    if not all_files:
+        click.echo("未找到任何 .day 文件，请确认 vipdoc 路径正确")
+        raise SystemExit(0)
+
+    total = len(all_files)
+    click.echo(f"发现 {total} 个 .day 文件，开始同步...")
+
+    # 2. 连接服务端，逐个同步
+    success = 0
+    skipped = 0
+    failed = 0
+    total_written = 0
+
+    with TdxClient.from_best_host() as client:
+        for idx, filepath in enumerate(all_files, 1):
+            name = filepath.name
+            try:
+                written, msg = _sync_one_daily(client, filepath)
+                total_written += written
+                if written > 0:
+                    success += 1
+                else:
+                    skipped += 1
+                click.echo(f"  [{idx}/{total}] {name}: {msg}")
+            except PermissionError:
+                failed += 1
+                click.echo(f"  [{idx}/{total}] {name}: ✗ 文件被锁定", err=True)
+            except Exception as e:
+                failed += 1
+                click.echo(f"  [{idx}/{total}] {name}: ✗ {e}", err=True)
+
+            # 每 100 只暂停一小段，避免请求过快被服务器断开
+            if idx % 100 == 0:
+                time.sleep(0.2)
+
+    # 3. 汇总
+    click.echo("")
+    summary = (
+        f"同步完成: {total} 只 | "
+        f"更新 {success} | 已是最新 {skipped} | "
+        f"失败 {failed} | 共写入 {total_written} 条"
+    )
+    click.echo(summary)
