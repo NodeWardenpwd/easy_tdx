@@ -289,9 +289,24 @@ easy-tdx backtest SZ 300308 --strategy-file strategies/expma_cross.py --count 20
 交易次数: 24
 ```
 
-**全策略批量对比：**
+**全策略批量对比（CLI）：**
 
-项目自带 `run_all_strategies.py`，一次跑完 `strategies/` 下所有策略并排名：
+`easy-tdx run-all` 一行命令跑完 `strategies/` 下所有策略并排名：
+
+```bash
+easy-tdx run-all SZ 300308 --count 2000 --cash 1000000 --adjust QFQ
+
+# 多因子组合回测
+easy-tdx run-all SZ 300308 --combo 2 --combo-mode MAJORITY
+
+# 加 --show 自动弹出最佳策略的资金曲线 vs 股价对比图
+easy-tdx run-all SZ 300308 --count 2000 --cash 1000000 --adjust QFQ --show
+
+# 自定义策略目录
+easy-tdx run-all SZ 300308 --strategies-dir my_strategies/
+```
+
+也可使用项目自带的 `run_all_strategies.py` 脚本（功能相同）：
 
 ```bash
 python -X utf8 run_all_strategies.py SZ 300308 --count 2000 --cash 1000000 --adjust QFQ
@@ -308,8 +323,8 @@ python -X utf8 run_all_strategies.py SZ 300308 --count 2000 --cash 1000000 --adj
 # 自动寻找最佳 2 因子和 3 因子组合（MAJORITY 模式）
 python -X utf8 run_all_strategies.py SZ 300308 --combo 2 --combo 3 --combo-mode majority
 
-# 也可用 AND / OR 模式
-python -X utf8 run_all_strategies.py SZ 300308 --combo 2 --combo-mode and
+# CLI 方式
+easy-tdx run-all SZ 300308 --combo 2 --combo 3 --combo-mode majority
 ```
 
 CLI 指定策略文件组合：
@@ -679,6 +694,7 @@ easy-tdx offline sync-all
 | `indicator` | 技术指标计算（32 个：MACD/KDJ/RSI/BOLL/DMI/ATR...） |
 | `indicator-list` | 列出可用技术指标 |
 | `backtest` | 回测引擎（加载策略文件，输出绩效报告） |
+| `run-all` | 批量运行所有策略并排名（绩效排名 + 综合评分 + 可选图表） |
 | `screen scan` | 策略选股扫描（纯离线，全市场信号扫描） |
 | `screen rank` | 扫描结果回测排名（按夏普/回撤等指标排序） |
 | `f10` | F10 公司信息 |
@@ -1229,6 +1245,16 @@ ruff format --check src/ tests/                              # format check
 详见 [NOTICE](NOTICE) 和 [LICENSE](LICENSE)。
 
 ## Changelog
+
+### 1.9.3 (2026-06-10)
+
+**新增 `run-all` CLI 命令** — 一行命令批量运行 strategies/ 目录下所有策略并排名，与 `run_all_strategies.py` 脚本功能完全一致。
+
+- 新增 `easy-tdx run-all` CLI 命令，支持 `--count`、`--cash`、`--commission`、`--adjust`、`--period`、`--combo`、`--combo-mode`、`--show`、`--strategies-dir` 参数
+- 绩效排名 + 综合评分 + 最佳策略交易明细，输出与脚本完全一致
+- 支持多因子组合回测（`--combo 2 --combo 3`）和资金曲线图表展示（`--show`）
+- 支持自定义策略目录（`--strategies-dir`）
+- `run_all_strategies.py` 保持不变，两种方式并存
 
 ### 1.9.2 (2026-06-10)
 
