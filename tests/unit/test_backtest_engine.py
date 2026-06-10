@@ -548,7 +548,7 @@ def test_chanlun_manual_result_overrides_auto():
     # Pass explicit result — should NOT auto-compute
     manual_result = {"manual": True}
     engine = BacktestEngine(CheckerStrategy, cash=100000, chanlun_level="DAILY")
-    result = engine.run(df, chanlun_result=manual_result)
+    engine.run(df, chanlun_result=manual_result)
 
     # Strategy should have received the manual result, not auto-computed one
     assert CheckerStrategy.received == manual_result
