@@ -23,6 +23,7 @@ easy-tdx backtest SH 600519 --strategy-file strategies/macd_cross.py --cash 5000
 | `turtle_breakout.py` | 海龟交易法（唐安奇通道） | 趋势突破 | 牛市启动 |
 | `bias_reversal.py` | 乖离率反转 | 反转 | 震荡回归 |
 | `volume_price.py` | 量价配合 | 综合判断 | 放量突破 |
+| `obv_trend.py` | OBV 能量潮趋势 | 量价趋势 | 资金持续流入的上升趋势 |
 
 ## 编写自定义策略
 

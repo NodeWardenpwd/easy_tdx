@@ -438,7 +438,7 @@ python -X utf8 run_all_strategies.py SH 600519 --count 2000 --cash 1000000 --adj
 
 #### 自带策略示例
 
-`strategies/` 目录下有 15 个开箱即用的策略文件，可直接用于 `--strategy-file`：
+`strategies/` 目录下有 16 个开箱即用的策略文件，可直接用于 `--strategy-file`：
 
 | 文件 | 策略 | 类型 | 适合行情 |
 |------|------|------|----------|
@@ -457,6 +457,7 @@ python -X utf8 run_all_strategies.py SH 600519 --count 2000 --cash 1000000 --adj
 | `mfi_volume.py` | MFI 量价反转 | 量价反转 | 震荡市（带量能确认） |
 | `trix_cross.py` | TRIX 三重平滑趋势交叉 | 趋势跟踪 | 中长线（抗噪音） |
 | `mtm_momentum.py` | MTM 动量零线穿越 | 动量 | 趋势拐点 |
+| `obv_trend.py` | OBV 能量潮趋势 | 量价趋势 | 资金持续流入的上升趋势 |
 
 编写自定义策略只需继承 `Strategy` 基类：
 
@@ -1250,6 +1251,16 @@ ruff format --check src/ tests/                              # format check
 详见 [NOTICE](NOTICE) 和 [LICENSE](LICENSE)。
 
 ## Changelog
+
+### 1.9.5 (2026-06-10)
+
+**OBV 能量潮趋势策略** — 新增 `obv_trend.py` 策略，基于 OBV 与其 30 日均线 MAOBV 的关系判断多空方向。
+
+- 新增 `strategies/obv_trend.py`：OBV 能量潮趋势策略
+- 入场条件：OBV 超过 MAOBV 达 2% 缓冲带 且 MAOBV 趋势向上（20 根确认）
+- 出场条件：OBV 跌破 MAOBV，资金流向转空即离场
+- MAOBV 趋势仅作入场过滤（确认趋势存在），出场只看 OBV/MAOBV 交叉信号
+- 可调参数：`maobv_period`（30）、`maobv_lookback`（20）、`obv_buffer`（0.02）
 
 ### 1.9.4 (2026-06-10)
 
