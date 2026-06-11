@@ -791,9 +791,7 @@ class MacClient:
 
         boards_df = self.get_board_list(board_type)
         if boards_df.empty:
-            return pd.DataFrame(
-                columns=["code", "name", "close_end", "close_start", "change_pct"]
-            )
+            return pd.DataFrame(columns=["code", "name", "close_end", "close_start", "change_pct"])
 
         fetch_count = days + 10  # 缓冲节假日
         target_ts: pd.Timestamp | None = None
@@ -1620,9 +1618,7 @@ class AsyncMacClient:
 
         boards_df = await self.get_board_list(board_type)
         if boards_df.empty:
-            return pd.DataFrame(
-                columns=["code", "name", "close_end", "close_start", "change_pct"]
-            )
+            return pd.DataFrame(columns=["code", "name", "close_end", "close_start", "change_pct"])
 
         fetch_count = days + 10
         target_ts: pd.Timestamp | None = None

@@ -240,9 +240,7 @@ def test_full_ranking(mock_board_list, mock_kline):
 @patch.object(MacClient, "get_board_list")
 def test_top_n_truncation(mock_board_list, mock_kline):
     """top_n=2 时只返回前 2 个板块。"""
-    boards_df = _make_boards_df(
-        [("881001", "A", 1), ("881002", "B", 1), ("881003", "C", 1)]
-    )
+    boards_df = _make_boards_df([("881001", "A", 1), ("881002", "B", 1), ("881003", "C", 1)])
     mock_board_list.return_value = boards_df
 
     dates = [f"2025-05-{d:02d}" for d in range(1, 31)]
@@ -271,9 +269,7 @@ def test_top_n_truncation(mock_board_list, mock_kline):
 @patch.object(MacClient, "get_board_list")
 def test_ascending_order(mock_board_list, mock_kline):
     """ascending=True 时跌幅最大的排前面。"""
-    boards_df = _make_boards_df(
-        [("881001", "A", 1), ("881002", "B", 1)]
-    )
+    boards_df = _make_boards_df([("881001", "A", 1), ("881002", "B", 1)])
     mock_board_list.return_value = boards_df
 
     dates = [f"2025-05-{d:02d}" for d in range(1, 31)]
@@ -331,9 +327,7 @@ def test_with_target_date(mock_board_list, mock_kline):
     client.get_board_list = mock_board_list
     client.get_stock_kline = mock_kline
 
-    result = MacClient.get_board_change_ranking(
-        client, board_type=0, target_date=20250520, days=5
-    )
+    result = MacClient.get_board_change_ranking(client, board_type=0, target_date=20250520, days=5)
     assert not result.empty
     # target_date=20250520, 对应 index 19 (0-based), close=119
     # start_pos = 19 - 5 = 14, close=114
