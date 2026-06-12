@@ -65,6 +65,18 @@ class ChanlunRequest(BaseModel):
     start: int = Field(default=0, ge=0)
 
 
+class ComputeIndicatorsRequest(BaseModel):
+    """技术指标计算请求。"""
+
+    data: list[dict[str, Any]] = Field(..., description="OHLCV records")
+    indicators: list[str] = Field(..., min_length=1, description="指标名称列表")
+    params: dict[str, dict[str, int | float]] | None = Field(
+        default=None, description="指标参数（可选）"
+    )
+    keep_ohlcv: bool = Field(default=True, description="保留原始 OHLCV 列")
+    tail: int | None = Field(default=None, ge=1, description="仅返回末尾 N 行")
+
+
 # ---------------------------------------------------------------------------
 # Response models
 # ---------------------------------------------------------------------------
@@ -87,6 +99,7 @@ class DataFrameResponse(BaseModel):
             for row in records:
                 clean_row: dict[str, Any] = {}
                 for k, v in row.items():
+                    assert isinstance(k, str)
                     if hasattr(v, "isoformat"):
                         clean_row[k] = v.isoformat()
                     elif hasattr(v, "item"):
@@ -97,6 +110,29 @@ class DataFrameResponse(BaseModel):
                 cleaned.append(clean_row)
             return cls(data=cleaned, count=len(cleaned))
         return cls(data=[], count=0)
+
+
+class DictResponse(BaseModel):
+    """通用 dict 响应（用于非 DataFrame 返回值）。"""
+
+    data: dict[str, Any]
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> DictResponse:
+        """序列化 dict，将其中的 DataFrame 转为 records 格式。"""
+        import pandas as pd
+
+        cleaned: dict[str, Any] = {}
+        for k, v in d.items():
+            if isinstance(v, pd.DataFrame):
+                cleaned[k] = DataFrameResponse.from_dataframe(v).data
+            elif hasattr(v, "isoformat"):
+                cleaned[k] = v.isoformat()
+            elif hasattr(v, "item"):
+                cleaned[k] = v.item()
+            else:
+                cleaned[k] = v
+        return cls(data=cleaned)
 
 
 class CountResponse(BaseModel):

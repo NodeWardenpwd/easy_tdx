@@ -773,6 +773,7 @@ easy-tdx serve --reload
 ### REST API 示例
 
 ```bash
+# ── 基础行情 ──
 # 获取深圳市场证券数量
 curl "http://localhost:8000/api/v1/security/count?market=SZ"
 
@@ -784,16 +785,71 @@ curl -X POST "http://localhost:8000/api/v1/quotes" \
   -H "Content-Type: application/json" \
   -d '{"stocks": [{"market": "SZ", "code": "000001"}, {"market": "SH", "code": "600000"}]}'
 
-# 缠论分析
-curl -X POST "http://localhost:8000/api/v1/chanlun/analyze" \
-  -H "Content-Type: application/json" \
-  -d '{"market": "SZ", "code": "000001", "category": "DAY", "count": 200}'
-
 # 市场统计
 curl "http://localhost:8000/api/v1/market/stat"
 
-# 板块信息
+# 板块信息（标准协议）
 curl "http://localhost:8000/api/v1/block?filename=block_gn.dat"
+
+# ── 板块分析（MAC 协议）──
+# 行业板块列表
+curl "http://localhost:8000/api/v1/board-mac/list?board_type=HY&count=50"
+
+# 板块成分股（按涨幅排序）
+curl "http://localhost:8000/api/v1/board-mac/members?board_symbol=881001&count=20"
+
+# 个股所属板块
+curl "http://localhost:8000/api/v1/board-mac/belong?market=SZ&code=000001"
+
+# 板块摘要（含主力净流入、涨跌家数）
+curl "http://localhost:8000/api/v1/board-mac/summary?board_symbol=881001"
+
+# 行业板块涨幅排名 Top 10
+curl "http://localhost:8000/api/v1/board-mac/ranking?board_type=HY&top_n=10"
+
+# 板块 20 日涨幅排行
+curl "http://localhost:8000/api/v1/board-mac/change-ranking?board_type=HY&days=20&top_n=10"
+
+# ── 资金 / 信息 ──
+# 个股资金流向（主力/散户净流入）
+curl "http://localhost:8000/api/v1/mac/capital-flow?market=SH&code=600519"
+
+# 个股基本信息快照
+curl "http://localhost:8000/api/v1/mac/symbol-info?market=SZ&code=000001"
+
+# 服务器交易时段信息
+curl "http://localhost:8000/api/v1/mac/server-info"
+
+# ── 排行 / 竞价 / 异动 ──
+# 全 A 涨幅排行前 20
+curl "http://localhost:8000/api/v1/mac/quote-list?category=A&count=20&sort_type=CHANGE_PCT"
+
+# 集合竞价数据
+curl "http://localhost:8000/api/v1/mac/auction?market=SZ&code=000001"
+
+# 市场异动行情
+curl "http://localhost:8000/api/v1/mac/unusual?market=SH&count=50"
+
+# ── 扩展市场（期货/港股/美股）──
+# 港股 K 线
+curl "http://localhost:8000/api/v1/ex/bars?market=HK_MAIN_BOARD&code=00700&category=DAY&count=30"
+
+# 美股实时报价
+curl "http://localhost:8000/api/v1/ex/quote?market=US_STOCK&code=AAPL"
+
+# ── 技术指标 ──
+# 列出所有可用指标
+curl "http://localhost:8000/api/v1/indicator/list"
+
+# 计算 MACD + KDJ 指标
+curl -X POST "http://localhost:8000/api/v1/indicator/compute" \
+  -H "Content-Type: application/json" \
+  -d '{"data": [{"open":10,"close":10.5,"high":11,"low":9.5,"vol":1000}], "indicators": ["MACD", "KDJ"]}'
+
+# ── 缠论分析 ──
+curl -X POST "http://localhost:8000/api/v1/chanlun/analyze" \
+  -H "Content-Type: application/json" \
+  -d '{"market": "SZ", "code": "000001", "category": "DAY", "count": 200}'
 ```
 
 ### WebSocket 实时行情
@@ -1414,6 +1470,21 @@ ruff format --check src/ tests/                              # format check
 详见 [NOTICE](NOTICE) 和 [LICENSE](LICENSE)。
 
 ## Changelog
+
+### 1.10.2 (2026-06-12)
+
+**Web API 全面补齐** — 新增 18 个 REST 端点，Web API 与 CLI 接口覆盖对齐。
+
+- **板块分析（6 端点）**：板块列表、成分股、所属板块、板块摘要、涨幅排名、N日涨幅排行
+- **资金/信息（3 端点）**：个股资金流向、个股信息快照、服务器交易时段
+- **排行/竞价/异动（3 端点）**：分类排序行情列表、集合竞价、市场异动
+- **扩展市场（4 端点）**：港股/美股/期货的 K 线、报价、分时、逐笔成交
+- **技术指标（2 端点）**：指标列表、指标计算（POST）
+- 新增 `AsyncMacClient` 依赖注入（`get_mac_client`），Web 层同时管理 TDX + MAC 双客户端连接
+- 新增 `AsyncExTdxClient` 依赖注入（`get_ex_client`），可选启用扩展市场端点
+- 新增 6 个 MAC 枚举转换器（BoardType/SortType/SortOrder/Category/ExMarket/FilterType）
+- 新增 `DictResponse` 和 `ComputeIndicatorsRequest` schemas
+- Web API 端点总数从 22 增至 40
 
 ### 1.10.0 (2026-06-12)
 
