@@ -1,4 +1,5 @@
 """价值类因子（需要财务数据扩展，当前为占位实现）。"""
+
 from __future__ import annotations
 
 import pandas as pd

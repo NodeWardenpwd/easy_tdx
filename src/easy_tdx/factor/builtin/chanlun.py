@@ -1,4 +1,5 @@
 """缠论因子 — 桥接 ChanlunAnalyser。"""
+
 from __future__ import annotations
 
 import numpy as np

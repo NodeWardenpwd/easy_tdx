@@ -1,4 +1,5 @@
 """成交量类因子。"""
+
 from __future__ import annotations
 
 import numpy as np

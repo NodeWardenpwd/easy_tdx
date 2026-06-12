@@ -1,4 +1,5 @@
 """技术指标因子 — 桥接 MyTT 指标库。"""
+
 from __future__ import annotations
 
 import numpy as np

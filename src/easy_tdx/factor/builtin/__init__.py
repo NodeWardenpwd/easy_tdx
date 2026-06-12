@@ -1,4 +1,5 @@
 """内置因子库 — 导入子模块触发注册。"""
+
 from __future__ import annotations
 
 from easy_tdx.factor.base import FACTORY_REGISTRY, Factor
@@ -35,7 +36,5 @@ def get_factor(name: str) -> type[Factor]:
         ValueError: 因子不存在。
     """
     if name not in FACTORY_REGISTRY:
-        raise ValueError(
-            f"未知因子: {name!r}。可用因子: {sorted(FACTORY_REGISTRY.keys())}"
-        )
+        raise ValueError(f"未知因子: {name!r}。可用因子: {sorted(FACTORY_REGISTRY.keys())}")
     return FACTORY_REGISTRY[name]

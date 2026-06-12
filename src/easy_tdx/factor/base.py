@@ -1,5 +1,6 @@
 # src/easy_tdx/factor/base.py
 """因子基类与全局注册表。"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -32,9 +33,7 @@ class Factor(ABC):
     def __init__(self) -> None:
         for attr in ("name", "category", "description", "inputs"):
             if not hasattr(self, attr):
-                raise TypeError(
-                    f"Factor 子类 {type(self).__name__} 必须定义类属性 '{attr}'"
-                )
+                raise TypeError(f"Factor 子类 {type(self).__name__} 必须定义类属性 '{attr}'")
 
 
 FACTORY_REGISTRY: dict[str, type[Factor]] = {}
@@ -47,8 +46,6 @@ def register_factor(cls: type[Factor]) -> type[Factor]:
         ValueError: 如果 name 已被注册。
     """
     if cls.name in FACTORY_REGISTRY:
-        raise ValueError(
-            f"因子 '{cls.name}' 已注册（类: {FACTORY_REGISTRY[cls.name].__name__}）"
-        )
+        raise ValueError(f"因子 '{cls.name}' 已注册（类: {FACTORY_REGISTRY[cls.name].__name__}）")
     FACTORY_REGISTRY[cls.name] = cls
     return cls

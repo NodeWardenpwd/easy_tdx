@@ -1,4 +1,5 @@
 """因子 CLI 命令。"""
+
 from __future__ import annotations
 
 import json

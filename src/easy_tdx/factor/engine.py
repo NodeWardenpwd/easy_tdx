@@ -1,5 +1,6 @@
 # src/easy_tdx/factor/engine.py
 """因子计算引擎 — 单股计算与截面批量计算。"""
+
 from __future__ import annotations
 
 import numpy as np
@@ -14,9 +15,7 @@ def _resolve_factor(f: str | Factor) -> Factor:
         return f
     name = f.strip()
     if name not in FACTORY_REGISTRY:
-        raise ValueError(
-            f"未知因子: {name!r}。可用因子: {sorted(FACTORY_REGISTRY.keys())}"
-        )
+        raise ValueError(f"未知因子: {name!r}。可用因子: {sorted(FACTORY_REGISTRY.keys())}")
     return FACTORY_REGISTRY[name]()
 
 
@@ -113,17 +112,17 @@ class FactorEngine:
 
             close = df["close"].to_numpy()
             forward = np.full(len(close), np.nan)
-            forward[: len(close) - period] = (
-                close[period:] / close[: len(close) - period] - 1
-            )
+            forward[: len(close) - period] = close[period:] / close[: len(close) - period] - 1
 
             dates = df["datetime"].apply(_datetime_to_int)
 
-            sub = pd.DataFrame({
-                "date": dates,
-                "code": code,
-                col_name: forward,
-            })
+            sub = pd.DataFrame(
+                {
+                    "date": dates,
+                    "code": code,
+                    col_name: forward,
+                }
+            )
             all_frames.append(sub)
 
         if not all_frames:
