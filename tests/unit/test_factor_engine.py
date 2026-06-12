@@ -154,3 +154,49 @@ class TestComputeForwardReturns:
         engine = FactorEngine()
         result = engine.compute_forward_returns({}, period=5)
         assert len(result) == 0
+
+
+class TestFactorEngineWithBuiltins:
+    """FactorEngine 与内置因子的集成测试。"""
+
+    def test_compute_single_with_builtin(self):
+        engine = FactorEngine()
+        df = _make_df(120)
+        result = engine.compute_single(df, ["momentum_20d", "volatility_20d", "rsi_14"])
+        assert "momentum_20d" in result.columns
+        assert "volatility_20d" in result.columns
+        assert "rsi_14" in result.columns
+        assert not result["momentum_20d"].iloc[20:25].isna().all()
+
+    def test_cross_section_with_builtins(self):
+        engine = FactorEngine()
+        data = {
+            "000001": _make_df(120, seed=1),
+            "000002": _make_df(120, seed=2),
+        }
+        result = engine.compute_cross_section(data, ["momentum_20d", "sharpe_20d"])
+        assert "momentum_20d" in result.columns
+        assert "sharpe_20d" in result.columns
+        assert len(result) == 240
+
+    def test_forward_returns_with_data(self):
+        engine = FactorEngine()
+        data = {
+            "000001": _make_df(120, seed=1),
+        }
+        result = engine.compute_forward_returns(data, period=5)
+        assert "forward_5d" in result.columns
+        assert len(result) == 120
+        assert not np.isnan(result["forward_5d"].iloc[50])
+        assert np.isnan(result["forward_5d"].iloc[-1])
+
+    def test_all_builtin_factors_compute(self):
+        """验证所有内置因子都能无报错地计算。"""
+        engine = FactorEngine()
+        df = _make_df(200)
+
+        from easy_tdx.factor.builtin import list_factors
+        for f_info in list_factors():
+            name = f_info["name"]
+            result = engine.compute_single(df, [name])
+            assert name in result.columns, f"因子 {name} 计算失败"
