@@ -1471,9 +1471,9 @@ ruff format --check src/ tests/                              # format check
 
 ## Changelog
 
-### 1.10.2 (2026-06-12)
+### 1.10.5 (2026-06-12)
 
-**Web API 全面补齐** — 新增 18 个 REST 端点，Web API 与 CLI 接口覆盖对齐。
+**Web API 全面补齐 + 稳定性修复** — 新增 18 个 REST 端点，Web API 与 CLI 接口覆盖对齐，修复多个生产环境问题。
 
 - **板块分析（6 端点）**：板块列表、成分股、所属板块、板块摘要、涨幅排名、N日涨幅排行
 - **资金/信息（3 端点）**：个股资金流向、个股信息快照、服务器交易时段
@@ -1485,6 +1485,9 @@ ruff format --check src/ tests/                              # format check
 - 新增 6 个 MAC 枚举转换器（BoardType/SortType/SortOrder/Category/ExMarket/FilterType）
 - 新增 `DictResponse` 和 `ComputeIndicatorsRequest` schemas
 - Web API 端点总数从 22 增至 40
+- 修复 MAC 客户端连接失败时 12 个端点返回 `AttributeError`（500），现正确返回 503
+- 修复扩展市场 dataclass 序列化时 `_raw: bytes` 字段导致 JSON 编码 500 错误
+- 修复 `/redoc` 页面 404（CDN `redoc@next` 已失效），手动注册端点并锁定 `redoc@2.2.0` 稳定版
 
 ### 1.10.0 (2026-06-12)
 
