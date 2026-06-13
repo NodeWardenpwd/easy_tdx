@@ -56,7 +56,10 @@ def ping_host(
         if hdr.zipsize > 0:
             _recv_exact_sock(sock, hdr.zipsize)
         return time.monotonic() - t0
-    except OSError:
+    except (OSError, TdxConnectionError):
+        # OSError: 连接/超时层失败；TdxConnectionError: 握手期服务器关闭连接
+        # （_recv_exact_sock 抛出，继承自 TdxError 而非 OSError）。
+        # 两者均属"服务器不可用"，按 docstring 返回 None，不拖垮整个 ping_all。
         return None
     finally:
         try:
@@ -85,7 +88,12 @@ def ping_all(
         futures = {pool.submit(ping_host, h, port, timeout): h for h in hosts}
         for fut in concurrent.futures.as_completed(futures):
             host = futures[fut]
-            latency = fut.result()
+            try:
+                latency = fut.result()
+            except Exception:
+                # 防御层：即使 ping_host 因意外原因抛异常，也只跳过该 host，
+                # 不让单个服务器拖垮整个 ping_all / `easy-tdx ping` 命令。
+                continue
             if latency is not None:
                 results.append((host, latency))
     results.sort(key=lambda t: t[1])
