@@ -4,13 +4,22 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 
-import { fetchStrategies, formatError, runBacktest, submitPortfolioTask, fetchTask } from '../api'
+import {
+  fetchStrategies,
+  formatError,
+  runBacktest,
+  submitPortfolioTask,
+  submitOptimizeTask,
+  fetchTask,
+} from '../api'
 import type {
   BacktestRequest,
   BacktestResult,
   Bar,
   PortfolioBacktestRequest,
   PortfolioResult,
+  OptimizeBacktestRequest,
+  OptimizeResult,
   StrategySchema,
 } from '../types'
 
@@ -105,6 +114,39 @@ export const useBacktestStore = defineStore('backtest', () => {
     error.value = ''
   }
 
+  // ── 参数网格寻优（Phase 4） ─────────────────────────────────────────────
+  const optimizeResult = ref<OptimizeResult | null>(null)
+  const optimizeRunning = ref(false)
+
+  /** 提交寻优后台任务并轮询直到完成。 */
+  async function runOptimize(req: OptimizeBacktestRequest) {
+    optimizeRunning.value = true
+    error.value = ''
+    optimizeResult.value = null
+    try {
+      const { task_id } = await submitOptimizeTask(req)
+      const start = Date.now()
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const state = await fetchTask(task_id)
+        if (state.status === 'done' && state.result) {
+          optimizeResult.value = state.result as OptimizeResult
+          break
+        }
+        if (state.status === 'failed') {
+          throw new Error(state.error || '寻优失败')
+        }
+        if (Date.now() - start > 180_000) throw new Error('寻优超时（180s）')
+        await new Promise((r) => setTimeout(r, 400))
+      }
+    } catch (e) {
+      error.value = formatError(e)
+      optimizeResult.value = null
+    } finally {
+      optimizeRunning.value = false
+    }
+  }
+
   return {
     // state
     strategies,
@@ -116,6 +158,8 @@ export const useBacktestStore = defineStore('backtest', () => {
     error,
     portfolioResult,
     portfolioRunning,
+    optimizeResult,
+    optimizeRunning,
     // getters
     hasBars,
     // actions
@@ -125,5 +169,6 @@ export const useBacktestStore = defineStore('backtest', () => {
     clearResult,
     runPortfolio,
     clearPortfolio,
+    runOptimize,
   }
 })

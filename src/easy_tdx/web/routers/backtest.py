@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends
 from easy_tdx.web.backtest_schemas import (
     BacktestRequest,
     BacktestResultResponse,
+    OptimizeBacktestRequest,
     PortfolioBacktestRequest,
     StrategySchemaResponse,
     TaskStateResponse,
@@ -146,6 +147,49 @@ async def run_portfolio_backtest_async(
     runner = get_runner()
     task_id = runner.submit(
         lambda: _run_portfolio_backtest(stock_data_list, snapshot),
+        description=description,
+    )
+    state = runner.get(task_id)
+    status: Any = state.status if state.status in ("pending", "running") else "running"
+    return TaskSubmitResponse(task_id=task_id, status=status)
+
+
+# ── 参数网格寻优 ─────────────────────────────────────────────────────────────
+
+
+@router.post("/backtest/optimize/run/async", response_model=TaskSubmitResponse, status_code=202)
+async def run_optimize_async(
+    req: OptimizeBacktestRequest,
+    client: Any = Depends(get_client),
+) -> TaskSubmitResponse:
+    """提交参数网格寻优后台任务。
+
+    在单个标的上对策略参数做网格搜索。数据获取支持内联 ohlcv 或按 symbol 取行情。
+    通过 GET /backtest/tasks/{task_id} 轮询结果。
+    """
+    # 1. 取数据
+    if req.ohlcv is not None:
+        df = _ohlcv_to_df(req.ohlcv)
+        desc_bars = f"{len(df)} 根"
+    elif req.symbol is not None:
+        df = await _fetch_bars(client, req.symbol, req.category, 800)
+        desc_bars = f"{req.symbol}"
+        if req.start_date or req.end_date:
+            df = _filter_df_by_date(df, req.start_date, req.end_date)
+    else:
+        raise ValueError("必须提供 ohlcv 或 symbol")
+
+    # 2. 捕获快照
+    snapshot = req.model_copy()
+    grid_size = 1
+    for vals in snapshot.param_grid.values():
+        grid_size *= len(vals)
+    description = f"{snapshot.strategy} 寻优 | {desc_bars} | {grid_size}点"
+
+    # 3. 提交后台任务
+    runner = get_runner()
+    task_id = runner.submit(
+        lambda: _run_optimize(df, snapshot),
         description=description,
     )
     state = runner.get(task_id)
@@ -292,6 +336,37 @@ async def _fetch_portfolio_bars(
             StockData(code=code, market=market_str, df=df.reset_index(drop=True))
         )
     return stock_data_list
+
+
+def _run_optimize(df: pd.DataFrame, req: OptimizeBacktestRequest) -> dict[str, Any]:
+    """执行参数网格寻优并返回清洗后的结果字典（后台线程内调用）。"""
+    from easy_tdx.backtest.optimizer import ParamGridOptimizer
+
+    optimizer = ParamGridOptimizer(
+        strategy_name=req.strategy,
+        param_grid=req.param_grid,
+        df=df,
+        cash=req.cash,
+        commission=req.commission,
+        slippage=req.slippage,
+        execution=req.execution,
+    )
+    result = optimizer.run()
+    return result.to_dict()
+
+
+def _filter_df_by_date(df: pd.DataFrame, start: str | None, end: str | None) -> pd.DataFrame:
+    """按日期范围过滤 DataFrame（闭区间，比较 YYYY-MM-DD）。"""
+    if not start and not end:
+        return df
+    dt_col = "datetime" if "datetime" in df.columns else "date"
+    dt_str = df[dt_col].astype(str).str.slice(0, 10)
+    mask = pd.Series(True, index=df.index)
+    if start:
+        mask &= dt_str >= start
+    if end:
+        mask &= dt_str <= end
+    return df[mask].reset_index(drop=True)
 
 
 def _now() -> float:

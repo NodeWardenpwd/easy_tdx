@@ -1,8 +1,8 @@
-// ECharts 按需引入。只注册 MVP-A 用到的图表类型，避免全量引入（~1MB → ~400KB）。
-// 用到的：candlestick（K线）、line（净值/回撤曲线）、markPoint（买卖点标注）。
+// ECharts 按需引入。只注册用到的图表类型，避免全量引入（~1MB → ~400KB）。
+// 用到的：candlestick（K线）、line（净值/回撤曲线）、markPoint（买卖点标注）、heatmap（寻优热力图）。
 
 import * as echarts from 'echarts/core'
-import { BarChart, CandlestickChart, LineChart } from 'echarts/charts'
+import { BarChart, CandlestickChart, HeatmapChart, LineChart } from 'echarts/charts'
 import {
   DataZoomComponent,
   GridComponent,
@@ -10,6 +10,7 @@ import {
   MarkPointComponent,
   TitleComponent,
   TooltipComponent,
+  VisualMapComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 
@@ -18,12 +19,14 @@ echarts.use([
   CandlestickChart,
   LineChart,
   BarChart,
+  HeatmapChart,
   GridComponent,
   TooltipComponent,
   LegendComponent,
   TitleComponent,
   DataZoomComponent,
   MarkPointComponent,
+  VisualMapComponent,
 ])
 
 // A股惯例：红涨绿跌

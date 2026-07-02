@@ -807,3 +807,93 @@ def test_portfolio_backtest_bad_strategy(client, monkeypatch):
             break
         time.sleep(0.05)
     assert final["status"] == "failed"
+
+
+# ---------------------------------------------------------------------------
+# Phase 4: 参数网格寻优路由
+# ---------------------------------------------------------------------------
+
+
+def test_optimize_request_validation():
+    """寻优请求校验：param_grid 非空、至少 1 个数据源。"""
+    from easy_tdx.web.backtest_schemas import OptimizeBacktestRequest
+
+    one_bar = [
+        {
+            "datetime": "2024-01-01",
+            "open": 1,
+            "high": 1,
+            "low": 1,
+            "close": 1,
+            "vol": 1,
+            "amount": 1,
+        }
+    ]
+    req = OptimizeBacktestRequest(
+        strategy="ma_cross",
+        param_grid={"fast": [5, 10], "slow": [20, 30]},
+        ohlcv=one_bar,
+    )
+    assert len(req.param_grid) == 2
+    with pytest.raises(ValueError):
+        OptimizeBacktestRequest(strategy="ma_cross", param_grid={"fast": [5]})  # 缺数据源
+    with pytest.raises(ValueError):
+        OptimizeBacktestRequest(  # param_grid > 2 参数
+            strategy="ma_cross",
+            param_grid={"a": [1], "b": [2], "c": [3]},
+            ohlcv=one_bar,
+        )
+
+
+def test_optimize_endpoint(client, sample_ohlcv):
+    """POST /backtest/optimize/run/async 端到端（内联数据）。"""
+    resp = client.post(
+        "/api/v1/backtest/optimize/run/async",
+        json={
+            "strategy": "ma_cross",
+            "param_grid": {"fast": [5, 10], "slow": [20, 30]},
+            "cash": 100000,
+            "ohlcv": sample_ohlcv,
+        },
+    )
+    assert resp.status_code == 202, resp.text
+    task_id = resp.json()["task_id"]
+
+    final = None
+    for _ in range(200):
+        poll = client.get(f"/api/v1/backtest/tasks/{task_id}")
+        final = poll.json()
+        if final["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+
+    assert final["status"] == "done", final
+    result = final["result"]
+    assert result["strategy"] == "ma_cross"
+    assert result["param_names"] == ["fast", "slow"]
+    assert len(result["results"]) == 4
+    assert result["best"] is not None
+    assert result["heatmap"] is not None
+    assert len(result["heatmap"]["data"]) == 4
+
+
+def test_optimize_single_param_no_heatmap(client, sample_ohlcv):
+    """单参数寻优不应返回热力图。"""
+    resp = client.post(
+        "/api/v1/backtest/optimize/run/async",
+        json={
+            "strategy": "rsi_reversal",
+            "param_grid": {"n": [7, 14, 21]},
+            "ohlcv": sample_ohlcv,
+        },
+    )
+    assert resp.status_code == 202
+    task_id = resp.json()["task_id"]
+    for _ in range(200):
+        poll = client.get(f"/api/v1/backtest/tasks/{task_id}")
+        final = poll.json()
+        if final["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+    assert final["status"] == "done"
+    assert final["result"]["heatmap"] is None

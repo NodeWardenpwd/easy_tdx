@@ -130,7 +130,7 @@ export type TaskStatus = 'pending' | 'running' | 'done' | 'failed'
 export interface TaskState {
   task_id: string
   status: TaskStatus
-  result: BacktestResult | PortfolioResult | null
+  result: BacktestResult | PortfolioResult | OptimizeResult | null
   error: string | null
   description: string
   elapsed: number
@@ -161,6 +161,49 @@ export interface PortfolioResult {
   individual_results: Record<string, BacktestResult>
   equity_allocation: Record<string, number>
   combined_equity: EquityPoint[]
+}
+
+// ── 参数网格寻优（Phase 4） ──────────────────────────────────────────────────
+
+export interface OptimizeBacktestRequest {
+  strategy: string
+  cash?: number
+  commission?: number
+  slippage?: number
+  execution?: ExecutionMode
+  param_grid: Record<string, Array<number | string>>
+  ohlcv?: Bar[]
+  symbol?: string
+  category?: Category
+  count?: number
+  start_date?: string
+  end_date?: string
+}
+
+export interface GridPointResult {
+  params: Record<string, number | string>
+  total_return: number | null
+  sharpe: number | null
+  max_drawdown: number | null
+  total_trades: number
+  win_rate: number | null
+  profit_factor: number | null
+}
+
+export interface OptimizeHeatmap {
+  x_name: string
+  y_name: string
+  x: Array<number | string>
+  y: Array<number | string>
+  data: Array<[number, number, number | null]>
+}
+
+export interface OptimizeResult {
+  strategy: string
+  param_names: string[]
+  results: GridPointResult[]
+  best: GridPointResult | null
+  heatmap: OptimizeHeatmap | null
 }
 
 // ── 错误响应（后端 ApiErrorResponse） ─────────────────────────────────────────

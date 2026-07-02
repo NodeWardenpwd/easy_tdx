@@ -106,6 +106,47 @@ class PortfolioBacktestRequest(BaseModel):
         return self
 
 
+class OptimizeBacktestRequest(BaseModel):
+    """参数网格寻优请求。
+
+    在单个标的上，对策略的 1-2 个参数做网格搜索。数据来源与单标的回测一致
+    （ohlcv 内联或 symbol 取行情）。param_grid 指定寻优参数及其取值列表，
+    网格大小（各取值数乘积）上限 200。
+    """
+
+    strategy: str = Field(..., description="策略名")
+    cash: float = Field(default=100000.0, gt=0)
+    commission: float = Field(default=0.0003, ge=0, le=0.01)
+    slippage: float = Field(default=0.0, ge=0, le=0.05)
+    execution: Literal["next_open", "next_close", "this_close", "worst", "best"] = Field(
+        default="next_open"
+    )
+    param_grid: dict[str, list[int | float | str]] = Field(
+        ...,
+        min_length=1,
+        max_length=2,
+        description='参数取值网格，如 {"fast":[5,10,20], "slow":[15,20,30]}',
+    )
+
+    # 数据来源 A：内联 OHLCV
+    ohlcv: list[dict[str, Any]] | None = Field(default=None, max_length=2000)
+
+    # 数据来源 B：按标的取行情
+    symbol: str | None = Field(default=None, pattern=r"^(SZ|SH|BJ):\d{6}$")
+    category: Literal["DAY", "WEEK", "MONTH", "MIN_5", "MIN_15", "MIN_30", "MIN_60"] = Field(
+        default="DAY"
+    )
+    count: int = Field(default=250, ge=20, le=800)
+    start_date: str | None = Field(default=None)
+    end_date: str | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _check_data_source(self) -> OptimizeBacktestRequest:
+        if self.ohlcv is None and self.symbol is None:
+            raise ValueError("必须提供 ohlcv 或 symbol 之一")
+        return self
+
+
 # ── 响应模型 ───────────────────────────────────────────────────────────────────
 
 
