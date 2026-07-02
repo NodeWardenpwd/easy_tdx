@@ -251,12 +251,13 @@ class Strategy(ABC):
     # ── 指标注册 ───────────────────────────────────────────────────────────────
 
     def I(  # noqa: E743
-        self, func: Callable[..., NDArray], *args: Any, **kwargs: Any
-    ) -> NDArray:
+        self, func: Callable[..., Any], *args: Any, **kwargs: Any
+    ) -> Any:
         """注册指标。
 
         将 _SeriesAccessor 参数自动解包为 numpy 数组，调用 func 计算指标。
-        返回的数组存入 self._indicators，可在 next() 中访问。
+        返回结果（通常是 ndarray，但 MACD/KDJ 等返回 tuple）存入
+        ``self._indicators``，可在 ``next()`` 中访问。
 
         Args:
             func: 指标函数（如 MyTT.MA）

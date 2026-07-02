@@ -389,7 +389,7 @@ def portfolio(
 
     # 4. 创建引擎并运行
     engine = PortfolioBacktestEngine(
-        strategy_cls=strategy_cls,
+        strategy=strategy_cls,
         stocks=stock_data_list,
         total_cash=cash,
         allocation=allocation,

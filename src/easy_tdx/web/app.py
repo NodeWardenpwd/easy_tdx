@@ -79,6 +79,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             except Exception:
                 pass
 
+    # --- 关闭回测任务执行器（取消 pending，等待 running） ---
+    # shutdown 是同步阻塞调用，包在 to_thread 里避免阻塞 event loop
+    import asyncio
+
+    try:
+        from easy_tdx.web.task_runner import shutdown_runner
+
+        await asyncio.to_thread(shutdown_runner)
+        logger.info("Backtest task runner shutdown")
+    except Exception:
+        logger.warning("Backtest task runner shutdown failed", exc_info=True)
+
 
 def _create_app(
     host: str | None = None,
@@ -141,6 +153,7 @@ def _create_app(
 
     # Mount routers
     from easy_tdx.web.routers.announcement import router as announcement_router
+    from easy_tdx.web.routers.backtest import router as backtest_router
     from easy_tdx.web.routers.bars import router as bars_router
     from easy_tdx.web.routers.block import router as block_router
     from easy_tdx.web.routers.board_mac import router as board_mac_router
@@ -172,5 +185,7 @@ def _create_app(
     app.include_router(announcement_router, prefix="/api/v1")
     # 新浪财报三表路由（独立数据源）
     app.include_router(sina_router, prefix="/api/v1")
+    # 回测路由（纯计算，不依赖行情连接 lifespan）
+    app.include_router(backtest_router, prefix="/api/v1")
 
     return app
