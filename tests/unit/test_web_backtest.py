@@ -59,7 +59,7 @@ def test_registry_has_builtin_strategies():
     assert "boll_breakout" in names
     assert "rsi_reversal" in names
     assert "kdj_cross" in names
-    assert len(names) >= 5
+    assert len(names) >= 18
 
 
 def test_strategy_schema_serialization():
@@ -522,7 +522,7 @@ def test_list_strategies_endpoint(client):
     resp = client.get("/api/v1/backtest/strategies")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["count"] >= 5
+    assert body["count"] >= 18
     names = [s["name"] for s in body["strategies"]]
     assert "ma_cross" in names
     # 每个策略的 schema 结构完整
