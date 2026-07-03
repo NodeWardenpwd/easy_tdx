@@ -12,7 +12,7 @@ import MetricTable from '../components/MetricTable.vue'
 import StrategyPicker from '../components/StrategyPicker.vue'
 import SymbolPicker from '../components/SymbolPicker.vue'
 import TradeTable from '../components/TradeTable.vue'
-import type { ExecutionMode } from '../types'
+import type { Category, ExecutionMode } from '../types'
 import { useBacktestStore } from '../stores/backtest'
 
 const store = useBacktestStore()
@@ -20,6 +20,18 @@ const route = useRoute()
 
 // SymbolPicker 实例引用，用于触发取行情
 const symbolPicker = ref<InstanceType<typeof SymbolPicker> | null>(null)
+
+// 镜像 SymbolPicker 的代码/周期/日期，与 SymbolPicker 通过 v-model 双向同步。
+// 初始值与 SymbolPicker 默认一致；onMounted 时若 URL query 带了寻优页传来的值则覆盖。
+const code = ref('000001')
+const category = ref<Category>('DAY')
+function isoDaysFromNow(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+const startDate = ref(isoDaysFromNow(-365 * 3))
+const endDate = ref(isoDaysFromNow(0))
 
 // 表单状态（v-model 给子组件）
 const strategy = ref('ma_cross')
@@ -56,6 +68,17 @@ onMounted(async () => {
       // query 参数解析失败，忽略
     }
   }
+
+  // 从 URL query 回填标的代码 / 周期 / 日期范围（寻优页「查看」跳转带来）。
+  // 各字段独立 if 守卫：老书签（只有 strategy/params）仍保持默认值，向后兼容。
+  const qSymbol = route.query.symbol as string | undefined
+  const qStartDate = route.query.startDate as string | undefined
+  const qEndDate = route.query.endDate as string | undefined
+  const qCategory = route.query.category as Category | undefined
+  if (qSymbol) code.value = qSymbol
+  if (qStartDate) startDate.value = qStartDate
+  if (qEndDate) endDate.value = qEndDate
+  if (qCategory) category.value = qCategory
 })
 
 // 取行情 + 回测 串联（点击「开始回测」触发）
@@ -82,7 +105,13 @@ async function onRun() {
     <aside class="config-panel">
       <section class="panel-section">
         <h3>行情数据</h3>
-        <SymbolPicker ref="symbolPicker" />
+        <SymbolPicker
+          ref="symbolPicker"
+          v-model:code="code"
+          v-model:category="category"
+          v-model:start-date="startDate"
+          v-model:end-date="endDate"
+        />
       </section>
 
       <section class="panel-section">

@@ -2,6 +2,23 @@
 
 本文件记录 easy-tdx 的版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [1.17.10] — 2026-07-04
+
+**Web UI 一键寻优「查看」按钮跳转携带完整行情上下文** —— `/optimize` 页策略排名表的两个「查看」按钮此前跳转只带 `strategy` + `params`，丢失了股票代码、周期、起止日期，导致跳到回测页后用户得手动重选标的与日期才能复现寻优行情。本次让跳转 URL 额外携带 `symbol/startDate/endDate/category`，回测页 `onMounted` 自动回填到 `SymbolPicker` 表单（股票代码/周期/起止日期全部就位），用户只需点「开始回测」即可完整复现。**向后兼容**：老书签（只有 `strategy/params`）仍正常工作，缺失字段保持默认值。前端 `vue-tsc --noEmit` / `vite build` 通过，后端 870 单测全绿（无回归）。
+
+### 新增
+
+- **SymbolPicker 表单状态双向同步**（`web-ui/src/components/SymbolPicker.vue`）—— `code/category/startDate/endDate` 从私有 `ref` 升级为 `defineModel`（带默认值），父组件可读（拼 URL）可写（回填表单）。`defineExpose({ loadBars, loading })` 保留不动，向后兼容已有调用。
+
+### 变更
+
+- **「查看」跳转 URL 携带完整上下文**（`web-ui/src/views/OptimizeView.vue`）—— 抽 `buildBacktestQuery(strategyName, params)` 统一构造 query，`onViewParams`（单策略网格排名表）/`onViewAll`（全局策略排名表）两个按钮跳转时附带 `symbol/startDate/endDate/category`。
+- **回测页回填标的与日期**（`web-ui/src/views/BacktestView.vue`）—— `onMounted` 新增读取 `route.query.symbol/startDate/endDate/category`，各字段独立 `if` 守卫回填到 `SymbolPicker` v-model 镜像 ref。老 URL 缺失字段保持默认值。
+
+### 已知约束（非 bug）
+
+- **URL query `category` 无白名单校验** —— 与既有 `strategy/params` 读取风格一致，非法值由后端 `/bars` 兜底拒绝；前端 `<select>` 显示为空但不崩溃。属项目既有输入校验风格，留作后续可选加固（应整体覆盖，避免不对称修补）。
+
 ## [1.17.9] — 2026-07-04
 
 **修复 Web UI 回测「交易」统计面板离谱数值** —— 单标的回测页绩效指标右侧「交易」面板出现 `平均盈利 65409694.45%`、`最大盈利 133926612.60%`、`平均持仓天数 1173.792`、`盈亏比 0.000`（却胜率 100%）等明显异常值。根因是后端 `avg_win/avg_loss/max_win/max_loss` 返回**绝对盈亏额（元）**，前端 `MetricTable.vue` 却按**百分比小数 ×100** 显示；`_compute_avg_holding_days` 用 `YYYYMMDD` 整数相减代替真实日期相减（跨月放大，如 `20240201-20240131=70`）；`profit_factor` 在无亏损交易时被强制记为 `0.0`。真实数据复现用户场景（300580，RSI reversal n=14/超卖30/超买70/开盘价，2020-01-06~2026-07-03）验证修复：平均盈利 `65409694.45% → 26.85%`、最大盈利 `133926612.60% → 49.26%`、平均持仓 `1173.792 → 91.0 天`、盈亏比 `0.000 → 999.000`。**870 单测全绿**（+3 回归守卫），ruff format/check / mypy strict / 前端 vue-tsc 全通过。

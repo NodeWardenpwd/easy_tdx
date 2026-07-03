@@ -13,17 +13,22 @@ import type { Category } from '../types'
 
 const store = useBacktestStore()
 
-const code = ref('000001')
-const category = ref<Category>('DAY')
-
-// 日期默认：结束=今天，开始=3年前
-function isoDaysFromNow(days: number): string {
-  const d = new Date()
-  d.setDate(d.getDate() + days)
-  return d.toISOString().slice(0, 10)
-}
-const endDate = ref(isoDaysFromNow(0))
-const startDate = ref(isoDaysFromNow(-365 * 3))
+// 代码 / 周期 / 日期通过 defineModel 与父组件双向同步：
+// 既允许父组件读取（如寻优页「查看」按钮拼 URL 带上这些值），
+// 也允许父组件写入（如回测页从 URL query 回填表单）。
+// 未绑定时取默认值，向后兼容。
+//
+// 注意：defineModel 的 default 不能引用本 <script setup> 内声明的局部函数
+// （编译期会被 hoist 到 setup() 外，此时函数还未定义），
+// 因此日期默认值用内联字面量表达式计算。
+const code = defineModel<string>('code', { default: '000001' })
+const category = defineModel<Category>('category', { default: 'DAY' })
+const startDate = defineModel<string>('startDate', {
+  default: new Date(Date.now() - 365 * 3 * 86400_000).toISOString().slice(0, 10),
+})
+const endDate = defineModel<string>('endDate', {
+  default: new Date().toISOString().slice(0, 10),
+})
 
 const error = ref('')
 // loading 由父组件控制（回测/寻优时驱动），组件自身只暴露 loadBars

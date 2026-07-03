@@ -9,7 +9,7 @@ import OptimizeHeatmap from '../components/OptimizeHeatmap.vue'
 import OptimizeResultTable from '../components/OptimizeResultTable.vue'
 import ParamGridPicker from '../components/ParamGridPicker.vue'
 import SymbolPicker from '../components/SymbolPicker.vue'
-import type { ExecutionMode } from '../types'
+import type { Category, ExecutionMode } from '../types'
 import { useBacktestStore } from '../stores/backtest'
 
 const store = useBacktestStore()
@@ -17,6 +17,18 @@ const router = useRouter()
 
 // SymbolPicker 实例引用，用于触发取行情
 const symbolPicker = ref<InstanceType<typeof SymbolPicker> | null>(null)
+
+// 镜像 SymbolPicker 的代码/周期/日期，用于「查看」跳转时拼进 URL query。
+// 与 SymbolPicker 通过 v-model 双向同步，初始值与 SymbolPicker 默认一致。
+const code = ref('000001')
+const category = ref<Category>('DAY')
+function isoDaysFromNow(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+const startDate = ref(isoDaysFromNow(-365 * 3))
+const endDate = ref(isoDaysFromNow(0))
 
 const strategy = ref('ma_cross')
 const paramGrid = ref<Record<string, Array<number | string>>>({})
@@ -83,21 +95,28 @@ async function onRunAll() {
   })
 }
 
+/** 「查看」跳转时，把当前标的 + 周期 + 日期范围一并塞进 query，
+ * 让回测页能完整复现寻优时的行情（而非只带策略参数）。 */
+function buildBacktestQuery(strategyName: string, params: Record<string, number | string>) {
+  return {
+    strategy: strategyName,
+    params: JSON.stringify(params),
+    symbol: code.value,
+    startDate: startDate.value,
+    endDate: endDate.value,
+    category: category.value,
+  }
+}
+
 // 点击排名表「查看」→ 跳转单标的页用该参数回测
 function onViewParams(params: Record<string, number | string>) {
   // 通过 query 传递参数，单标的页接收后自动填充
-  router.push({
-    path: '/',
-    query: { strategy: strategy.value, params: JSON.stringify(params) },
-  })
+  router.push({ path: '/', query: buildBacktestQuery(strategy.value, params) })
 }
 
 // 一键寻优结果点击「查看」→ 跳转单标的页用该策略 + 参数回测
 function onViewAll(strategyName: string, params: Record<string, number | string>) {
-  router.push({
-    path: '/',
-    query: { strategy: strategyName, params: JSON.stringify(params) },
-  })
+  router.push({ path: '/', query: buildBacktestQuery(strategyName, params) })
 }
 
 function pct(v: number | null | undefined): string {
@@ -113,7 +132,13 @@ function num(v: number | null | undefined, d = 2): string {
     <aside class="config-panel">
       <section class="panel-section">
         <h3>行情数据</h3>
-        <SymbolPicker ref="symbolPicker" />
+        <SymbolPicker
+          ref="symbolPicker"
+          v-model:code="code"
+          v-model:category="category"
+          v-model:start-date="startDate"
+          v-model:end-date="endDate"
+        />
       </section>
 
       <section class="panel-section">
