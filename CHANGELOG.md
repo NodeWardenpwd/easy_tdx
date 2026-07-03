@@ -2,6 +2,29 @@
 
 本文件记录 easy-tdx 的版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [1.17.4] — 2026-07-04
+
+**Web UI 回测交互重构 + 一键寻优全策略** —— 针对单标的 / 组合 / 寻优四个页面做交互精简与能力补强：取行情整合进「开始回测」一键完成、市场选择改为 6 位代码智能识别、成交价精简为开盘价/收盘价、初始资金统一为 100 万、新增 18 策略预设参数网格与「一键寻优所有策略」全局排名。**838 单测全绿**（+2），ruff / mypy strict / vue-tsc 全部通过。
+
+### 新增
+
+- **一键寻优所有策略**（`web/routers/backtest.py`）—— 新增第 7 个回测端点 `POST /backtest/optimize-all/run/async`：对全部 18 个内置策略逐个用其预设参数网格做 `ParamGridOptimizer` 网格寻优（共用同一份 OHLCV），取各策略最优点汇总成全局排名（按总收益降序），返回 `OptimizeAllResult`（`ranking` / `best` / `per_strategy` / `total_grid_points`）。前端寻优页新增「一键寻优所有策略」按钮 + 策略排名表（策略/参数/收益/夏普/回撤/胜率），点击行可跳转单标的页用该策略+参数回测。端到端实测：18 策略 × 182 网格点约 5s 跑完。
+- **策略预设参数网格**（`backtest/strategies/presets.py`，新建独立配置文件）—— 18 个策略各配 1-2 个关键参数的合理取值列表（单策略笛卡尔积 ≤ 200），如双均线 `fast=[5,10,15,20,30,60] × slow=[10,20,30,60,120,250]`（36 点）、MACD `short=[8,10,12,15] × long=[20,26,30,40]`（16 点）等。作为单一事实源供寻优页自动填充 + 一键寻优消费；`RegisteredStrategy.to_schema()` 通过 `preset_grid` 字段返回，前端 `ParamGridPicker` 切换策略时自动勾选并填入预设（用户仍可编辑/取消）。
+- **市场智能识别**（`web-ui/src/market.ts`，新建）—— `detectMarket(code)` 按 6 位代码段规则自动匹配沪市(SH)/深市(SZ)/北交所(BJ)：北交所 43/83/87/92(含920)/93 + 4xx/8xx，沪市 6xx(主板/科创板)/9xx(B股)/5xx(基金)，其余归深市。17 个真实边界用例（贵州茅台/宁德时代/北交所各段/ETF 等）全过。
+- **一键寻优端到端单测**（`tests/unit/test_web_backtest.py`，+2 例）—— `test_optimize_all_endpoint` 验证排名降序、best 指向第一、各策略最优点齐全、合计网格点 = 各策略 grid_points 之和；`test_optimize_all_request_validation` 验证缺数据源报错 + 默认值。
+
+### 变更
+
+- **取行情整合进「开始回测」**（`web-ui/src/components/SymbolPicker.vue`、`views/BacktestView.vue`、`views/OptimizeView.vue`）—— 取消单标的/寻优页独立的「取行情」按钮，点击「开始回测/开始寻优」时先自动取行情（`SymbolPicker` 经 `defineExpose` 暴露 `loadBars()`）再回测，按钮文案随状态切换为「取行情+回测中…」。组合页本就是后端取数路径，无需改动。
+- **取消市场手动选择**（`web-ui/src/components/SymbolPicker.vue`、`StocksPicker.vue`）—— 删除沪市/深市/北交所下拉框，只保留 6 位代码输入，由 `detectMarket` 自动识别并显示（代码框旁小标签 / 添加时提示）。后端校验仍要求 `市场:代码` 格式，前端始终发送带前缀 symbol。
+- **成交价精简为开盘价 / 收盘价**（`backtest/orders.py`、`backtest_schemas.py`、`types.ts`）—— 删除 `this_close`（本根收盘，有未来函数偏差会高估收益）、`worst`（最差价）、`best`（最优价）三种非真实成交模式，只保留 `next_open`（次日开盘价）与 `next_close`（次日收盘价）两种真实可执行模式。UI 下拉显示中文「开盘价/收盘价」。后端字符串值不变以保持数据契约。
+- **初始资金统一为 1,000,000**（前端三个 view + `backtest_schemas.py` 三处 default）—— 单标的/组合/寻优默认初始资金从 10 万/20 万统一为 100 万。
+- **寻优预设自动填充**（`web-ui/src/components/ParamGridPicker.vue`）—— 切换策略时若有 `preset_grid` 自动勾选对应参数并填入预设取值，提示文案补充「切换策略会自动填入预设参数，可直接编辑」。
+
+### 修复
+
+- **一键寻优合计网格点计算错误**（`web/routers/backtest.py` `_run_optimize_all`）—— 初版用各参数取值列表长度之和（如双均线算成 6+6=12）而非笛卡尔积（应为 6×6=36），导致前端「合计 N 网格点」显示偏低。改为累加各策略 `len(result.results)`（真实成功网格点），现等于理论笛卡尔积之和。
+
 ## [1.17.2] — 2026-07-03
 
 **QFQ 深层历史负价修复** —— 修复通达信服务端在前复权（QFQ）模式下对长期重度除权股票（如 601088 中远海控）深层历史页直接返回**负价格**的上游缺陷，导致回测出现总收益 -3087%、最大回撤 326.85%、年化 nan%、`bollinger_breakout` 崩溃（`ZeroDivisionError`）、10 个策略报 `invalid value in scalar power`、`MyTT` 报 `divide by zero` 等一连串症状。**844 单测全绿**（+20），ruff / mypy strict 通过。
