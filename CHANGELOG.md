@@ -2,6 +2,45 @@
 
 本文件记录 easy-tdx 的版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [1.17.0] — 2026-07-03
+
+**回测可视化 Web UI 大版本** —— 从命令行回测升级到浏览器可视化。Vue3 + ECharts 单页应用，零代码完成单标的回测、组合回测、参数寻优、结果对比四大场景。后端新增回测 REST API + 策略注册表 + 后台任务执行器，内置策略从 5 个扩充到 18 个。**823 单测全绿**，ruff / mypy strict / vue-tsc 全部通过。
+
+### 新增
+
+- **回测可视化 Web UI**（`web-ui/`）—— Vue3 + Vite + TypeScript + Pinia + ECharts 单页应用，四个功能页：
+  - **单标的回测**：选标的取行情（日期范围 + 自动翻页），18 个内置策略任选，参数表单按 schema 动态渲染，K 线主图标买卖点（markPoint 按 datetime 对齐），净值回撤双轴图，19 项绩效指标表，成交明细
+  - **组合回测**：多只股票等权组合，组合净值曲线（各标的按日期并集 forward-fill 对齐求和），各标的净值归一化叠加对比，横向绩效表
+  - **参数寻优**：勾选 1-2 个参数填取值列表，itertools.product 网格遍历，排名表 + 二维热力图（ECharts heatmap），最优点一键跳转单标的页用该参数回测
+  - **结果对比**：选 2-4 个已完成回测任务，归一化净值叠加，8 项指标横向 PK，支持单标的 + 组合混合对比
+- **回测 REST API**（`web/routers/backtest.py`）—— 6 个端点：
+  - `GET /backtest/strategies` 策略枚举 + 参数 schema
+  - `POST /backtest/run` 同步回测（内联 OHLCV）
+  - `POST /backtest/run/async` 后台任务回测
+  - `POST /backtest/portfolio/run/async` 组合回测
+  - `POST /backtest/optimize/run/async` 参数网格寻优
+  - `GET /backtest/tasks` + `GET /backtest/tasks/{id}` 任务列表 + 轮询
+- **策略注册表**（`backtest/strategies/`）—— `Param` schema 声明机制 + `ParametrizedStrategy` 基类，策略参数自描述供 Web 表单动态渲染。`@register_strategy` 装饰器登记到全局 registry
+- **后台任务执行器**（`web/task_runner.py`）—— ThreadPoolExecutor + 进程内 LRU 任务表，status-aware 淘汰（不淘汰 running 任务），线程安全单例 + lifespan shutdown 接入
+- **参数网格寻优器**（`backtest/optimizer.py`）—— `ParamGridOptimizer` 遍历参数笛卡尔积，按收益排序，2 参数生成热力图矩阵，网格上限 200 防爆炸，寻优时跳过参数范围检查（探索超范围值是寻优目的）
+- **内置策略扩充 5 → 18 个**（`backtest/strategies/builtin.py`），新增 13 个经典策略：
+  - 趋势类：EMA 双线交叉、三均线系统、DMI 趋向指标、TRIX 三重平滑
+  - 通道/突破类：唐安奇通道突破（海龟）、肯特纳通道（ATR-based）、ATR 通道突破
+  - 震荡/反转类：CCI 超卖反弹、WR 威廉超卖、BIAS 乖离反弹、EMV 简易波动、DPO 区间震荡
+  - 均线类：BBI 多空指标
+- **组合回测引擎改造**（`portfolio_engine.py`）—— 接受策略实例（参数透传到每个标的），新增组合净值曲线（按日期并集 forward-fill 对齐求和 + 回撤计算）
+
+### 修复
+
+- **取数翻页拼接后未排序**（`web-ui/src/api.ts`）—— 翻页拼接 concat 后页间时间逆序（page1=最新段，page2=更旧段），导致超过 800 根时图表/成交记录错乱。修复：concat 后按 datetime 排序
+- **日线 x 轴丢年份**（`KlineChart.vue`）—— `isIntraday` 用 `length > 10` 判断分钟线，但日线归一化后带 `T00:00:00` 后缀长度也 19，误判为分钟线走 slice(5,16) 砍年份。改为检查时分秒是否非零
+- **组合回测取数不翻页**（`routers/backtest.py` `_fetch_portfolio_bars`）—— 固定 count=800 不翻页，超 800 天数据缺失。改为翻页循环 + sort_values 排序
+- **寻优跳转参数未填充**（`BacktestView.vue`）—— OptimizeView 跳转传 query 参数，但 BacktestView 未读 route.query。加 useRoute() + nextTick 填充
+- **参数校验安全加固**（`registry.py` `Param.validate`）—— 拦截 NaN/Inf/giant-int（防 DoS），int(inf) 的 OverflowError 统一转 ValueError；ohlcv max_length=2000 防内存耗尽
+- **task_runner 并发竞态**（`task_runner.py`）—— LRU 淘汰跳过 running 任务（修复结果丢失），get_runner double-checked locking（修复单例竞态），shutdown 接入 lifespan（修复资源泄漏），submit+executor 原子化（消除注册-淘汰窗口）
+- **对比页只认单标的**（`CompareView.vue`）—— 校验只认 BacktestResult 结构，组合/寻优任务报错。新增 extractComparable() 支持组合（combined_equity）
+- **日线 bars 返回 date 列**（`api.ts` `normalizeBar`）—— 日线 bars 返回 `date` 列非 `datetime`，前端归一化为统一 datetime 字段
+
 ## [1.16.3] — 2026-07-02
 
 ### 修复
