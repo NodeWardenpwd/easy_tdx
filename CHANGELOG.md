@@ -2,6 +2,25 @@
 
 本文件记录 easy-tdx 的版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [1.17.2] — 2026-07-03
+
+**QFQ 深层历史负价修复** —— 修复通达信服务端在前复权（QFQ）模式下对长期重度除权股票（如 601088 中远海控）深层历史页直接返回**负价格**的上游缺陷，导致回测出现总收益 -3087%、最大回撤 326.85%、年化 nan%、`bollinger_breakout` 崩溃（`ZeroDivisionError`）、10 个策略报 `invalid value in scalar power`、`MyTT` 报 `divide by zero` 等一连串症状。**844 单测全绿**（+20），ruff / mypy strict 通过。
+
+### 修复
+
+- **QFQ 深层历史返回负价**（`mac/commands/symbol_bar.py`、`mac/client.py`、`mac/adjust.py`）— 根因：通达信 MAC 服务端在 QFQ 模式下，对 601088 这类长期重度除权股票的深层历史页（`start` 偏移 > ~2100）直接返回负价格（如 2013-11-18 QFQ close=-3.80，而 NONE=16.58、HFQ=27.17 均正常）。`SymbolBarCmd` 原样解析，污染下游全部计算：负 close → `position_value = size*close < 0` → 总权益为负 → 回撤 >100%、`total_return < -1` → `(1+total_return)` 为负 → 分数次幂 = nan；同时 BOLL 指标在零价处触发 `cash/0` 崩溃。**非 easy_tdx 代码 bug，是上游数据缺陷。**
+  - 修复：客户端兜底——`MacClient.get_stock_kline` 检测到 QFQ 结果含 `<=0` / NaN / inf 时，用 `fq=NONE` 重抓原始价，再经 `TdxClient.get_xdxr_info`（连 `get_known_hosts` 主机池，按 `(market,code)` 缓存）拉除权除息记录，本地重算前复权。同步 + 异步（`AsyncMacClient`）双路径一致修复。
+  - 公式（经实证验证）：以**除权日前一交易日收盘价**（含权价 `P_cum`）为基准，前复权因子 `f = (P_cum - fenhong + peigujia×peigu) / (P_cum×(1+songzhuangu+peigu))`，乘到该日及之前所有 bar 的 OHLC。该约定保证除权日前后价格连续（验证 jump≈0%），若误用除权日收盘价则 jump 达 -8%~-13%。
+  - 降级：XDXR 取不到或重算后仍含非法价格时，打 warning 返回原值（不比现状更坏）。
+  - 验证：重跑 `run_all_strategies.py SH 601088 --count 3000 --adjust QFQ`，16 策略全绿，总收益落 [-33%, +430%]，最大回撤 [25%, 67%]，年化全有限，无任何 warning/nan/崩溃。
+  - 新增纯函数模块 `mac/adjust.py`（`compute_forward_factor` / `apply_forward_adjust` / `has_bad_prices`），无网络依赖便于单测。
+
+### 新增
+
+- **QFQ 本地重算纯函数**（`mac/adjust.py`）— `compute_forward_factor`（单次除权因子）、`apply_forward_adjust`（OHLC 同比缩放，最新价锚定不动，多次事件累乘）、`has_bad_prices`（检测 <=0/NaN/inf）。纯 pandas/numpy，无 easy_tdx 内部依赖。
+- **QFQ 重算单测**（`tests/unit/test_mac_qfq_adjust.py`，16 例）— 覆盖纯现金分红、送转股、多次事件累乘、无事件原样返回、非法因子跳过、输入不可变、最新价锚定、`has_bad_prices` 各分支。
+- **QFQ 重算集成测试**（`tests/unit/test_mac_qfq_integration.py`，4 例）— monkeypatch `MacClient._execute` 返回含负价的 QFQ + mock `TdxClient.get_xdxr_info` 返回 XDXR，验证触发重算、干净 QFQ 不触发、XDXR 失败降级、NONE 跳过重算。无 live server。
+
 ## [1.17.0] — 2026-07-03
 
 **回测可视化 Web UI 大版本** —— 从命令行回测升级到浏览器可视化。Vue3 + ECharts 单页应用，零代码完成单标的回测、组合回测、参数寻优、结果对比四大场景。后端新增回测 REST API + 策略注册表 + 后台任务执行器，内置策略从 5 个扩充到 18 个。**823 单测全绿**，ruff / mypy strict / vue-tsc 全部通过。
