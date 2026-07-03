@@ -17,6 +17,9 @@ __all__ = [
     "StrategySchemaResponse",
     "TaskSubmitResponse",
     "TaskStateResponse",
+    "OptimizeAllBacktestRequest",
+    "OptimizeAllResult",
+    "OptimizeAllRankEntry",
     "serialize_result",
 ]
 
@@ -35,12 +38,12 @@ class BacktestRequest(BaseModel):
 
     strategy: str = Field(..., description="策略名（见 /backtest/strategies）")
     params: dict[str, Any] = Field(default_factory=dict, description="策略参数")
-    cash: float = Field(default=100000.0, gt=0, description="初始资金")
+    cash: float = Field(default=1_000_000.0, gt=0, description="初始资金")
     commission: float = Field(default=0.0003, ge=0, le=0.01, description="佣金费率")
     min_commission: float = Field(default=5.0, ge=0, description="单笔最低佣金")
     stamp_tax: float = Field(default=0.001, ge=0, le=0.01, description="印花税（卖出）")
     slippage: float = Field(default=0.0, ge=0, le=0.05, description="滑点费率")
-    execution: Literal["next_open", "next_close", "this_close", "worst", "best"] = Field(
+    execution: Literal["next_open", "next_close"] = Field(
         default="next_open", description="成交模式"
     )
 
@@ -78,14 +81,12 @@ class PortfolioBacktestRequest(BaseModel):
 
     strategy: str = Field(..., description="策略名")
     params: dict[str, Any] = Field(default_factory=dict, description="策略参数")
-    cash: float = Field(default=200000.0, gt=0, description="组合总资金")
+    cash: float = Field(default=1_000_000.0, gt=0, description="组合总资金")
     commission: float = Field(default=0.0003, ge=0, le=0.01)
     min_commission: float = Field(default=5.0, ge=0)
     stamp_tax: float = Field(default=0.001, ge=0, le=0.01)
     slippage: float = Field(default=0.0, ge=0, le=0.05)
-    execution: Literal["next_open", "next_close", "this_close", "worst", "best"] = Field(
-        default="next_open"
-    )
+    execution: Literal["next_open", "next_close"] = Field(default="next_open")
     stocks: list[str] = Field(
         ...,
         min_length=1,
@@ -115,12 +116,10 @@ class OptimizeBacktestRequest(BaseModel):
     """
 
     strategy: str = Field(..., description="策略名")
-    cash: float = Field(default=100000.0, gt=0)
+    cash: float = Field(default=1_000_000.0, gt=0)
     commission: float = Field(default=0.0003, ge=0, le=0.01)
     slippage: float = Field(default=0.0, ge=0, le=0.05)
-    execution: Literal["next_open", "next_close", "this_close", "worst", "best"] = Field(
-        default="next_open"
-    )
+    execution: Literal["next_open", "next_close"] = Field(default="next_open")
     param_grid: dict[str, list[int | float | str]] = Field(
         ...,
         min_length=1,
@@ -142,6 +141,39 @@ class OptimizeBacktestRequest(BaseModel):
 
     @model_validator(mode="after")
     def _check_data_source(self) -> OptimizeBacktestRequest:
+        if self.ohlcv is None and self.symbol is None:
+            raise ValueError("必须提供 ohlcv 或 symbol 之一")
+        return self
+
+
+class OptimizeAllBacktestRequest(BaseModel):
+    """一键寻优所有策略请求。
+
+    在单个标的上，对所有策略的预设参数网格（见
+    ``easy_tdx.backtest.strategies.presets.STRATEGY_PRESETS``）依次做网格寻优，
+    取各策略最优点汇总成全局排名，找出最佳策略 + 参数组合。数据来源与单标的
+    回测一致（ohlcv 内联或 symbol 取行情）。
+    """
+
+    cash: float = Field(default=1_000_000.0, gt=0)
+    commission: float = Field(default=0.0003, ge=0, le=0.01)
+    slippage: float = Field(default=0.0, ge=0, le=0.05)
+    execution: Literal["next_open", "next_close"] = Field(default="next_open")
+
+    # 数据来源 A：内联 OHLCV
+    ohlcv: list[dict[str, Any]] | None = Field(default=None, max_length=2000)
+
+    # 数据来源 B：按标的取行情
+    symbol: str | None = Field(default=None, pattern=r"^(SZ|SH|BJ):\d{6}$")
+    category: Literal["DAY", "WEEK", "MONTH", "MIN_5", "MIN_15", "MIN_30", "MIN_60"] = Field(
+        default="DAY"
+    )
+    count: int = Field(default=250, ge=20, le=800)
+    start_date: str | None = Field(default=None)
+    end_date: str | None = Field(default=None)
+
+    @model_validator(mode="after")
+    def _check_data_source(self) -> OptimizeAllBacktestRequest:
         if self.ohlcv is None and self.symbol is None:
             raise ValueError("必须提供 ohlcv 或 symbol 之一")
         return self
@@ -200,6 +232,30 @@ class TaskListResponse(BaseModel):
 
     tasks: list[TaskSummary]
     count: int
+
+
+class OptimizeAllRankEntry(BaseModel):
+    """一键寻优全局排名单行：某策略的最优点摘要。"""
+
+    strategy: str
+    strategy_label: str
+    params: dict[str, Any]
+    total_return: float = 0.0
+    sharpe: float = 0.0
+    max_drawdown: float = 0.0
+    total_trades: int = 0
+    win_rate: float = 0.0
+    profit_factor: float = 0.0
+    grid_points: int = 0  # 该策略本轮寻优的网格点数
+
+
+class OptimizeAllResult(BaseModel):
+    """一键寻优所有策略的结果：全局排名 + 最佳 + 各策略最优点。"""
+
+    ranking: list[OptimizeAllRankEntry]  # 按 total_return 降序
+    best: OptimizeAllRankEntry | None = None
+    per_strategy: dict[str, OptimizeAllRankEntry] = {}  # 策略名 → 最优点
+    total_grid_points: int = 0  # 所有策略网格点合计
 
 
 # ── 结果序列化 ─────────────────────────────────────────────────────────────────

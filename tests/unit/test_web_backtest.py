@@ -191,7 +191,7 @@ def test_backtest_request_defaults():
     from easy_tdx.web.backtest_schemas import BacktestRequest
 
     req = BacktestRequest(strategy="ma_cross", symbol="SZ:000001")
-    assert req.cash == 100000.0
+    assert req.cash == 1_000_000.0
     assert req.commission == 0.0003
     assert req.execution == "next_open"
     assert req.category == "DAY"
@@ -704,7 +704,7 @@ def test_portfolio_request_defaults():
     from easy_tdx.web.backtest_schemas import PortfolioBacktestRequest
 
     req = PortfolioBacktestRequest(strategy="ma_cross", stocks=["SZ:000001"])
-    assert req.cash == 200000.0
+    assert req.cash == 1_000_000.0
     assert req.category == "DAY"
 
 
@@ -897,6 +897,55 @@ def test_optimize_single_param_no_heatmap(client, sample_ohlcv):
         time.sleep(0.05)
     assert final["status"] == "done"
     assert final["result"]["heatmap"] is None
+
+
+def test_optimize_all_endpoint(client, sample_ohlcv):
+    """POST /backtest/optimize-all/run/async 端到端：逐策略预设网格寻优 + 全局排名。"""
+    resp = client.post(
+        "/api/v1/backtest/optimize-all/run/async",
+        json={
+            "cash": 1_000_000,
+            "ohlcv": sample_ohlcv,
+        },
+    )
+    assert resp.status_code == 202, resp.text
+    task_id = resp.json()["task_id"]
+
+    final = None
+    for _ in range(400):
+        poll = client.get(f"/api/v1/backtest/tasks/{task_id}")
+        final = poll.json()
+        if final["status"] in ("done", "failed"):
+            break
+        time.sleep(0.05)
+
+    assert final["status"] == "done", final
+    result = final["result"]
+    # 排名按 total_return 降序、best 指向第一名、各策略最优点齐全
+    assert "ranking" in result and len(result["ranking"]) > 0
+    assert "best" in result and result["best"] is not None
+    assert "per_strategy" in result and len(result["per_strategy"]) == len(result["ranking"])
+    assert "total_grid_points" in result and result["total_grid_points"] > 0
+    # ranking 降序校验
+    returns = [r["total_return"] for r in result["ranking"]]
+    assert returns == sorted(returns, reverse=True)
+    # best == ranking[0]
+    assert result["best"]["strategy"] == result["ranking"][0]["strategy"]
+    # 合计网格点 == 各策略 grid_points 之和
+    assert result["total_grid_points"] == sum(r["grid_points"] for r in result["ranking"])
+
+
+def test_optimize_all_request_validation():
+    """optimize-all 请求必须提供数据源。"""
+    from easy_tdx.web.backtest_schemas import OptimizeAllBacktestRequest
+
+    # 缺数据源
+    with pytest.raises(ValueError):
+        OptimizeAllBacktestRequest()
+    # 合法
+    req = OptimizeAllBacktestRequest(symbol="SZ:000001")
+    assert req.cash == 1_000_000.0
+    assert req.execution == "next_open"
 
 
 # ---------------------------------------------------------------------------

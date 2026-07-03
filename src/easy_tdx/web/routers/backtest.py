@@ -19,6 +19,9 @@ from fastapi import APIRouter, Depends
 from easy_tdx.web.backtest_schemas import (
     BacktestRequest,
     BacktestResultResponse,
+    OptimizeAllBacktestRequest,
+    OptimizeAllRankEntry,
+    OptimizeAllResult,
     OptimizeBacktestRequest,
     PortfolioBacktestRequest,
     StrategySchemaResponse,
@@ -222,6 +225,47 @@ async def run_optimize_async(
     return TaskSubmitResponse(task_id=task_id, status=status)
 
 
+# ── 一键寻优所有策略 ───────────────────────────────────────────────────────────
+
+
+@router.post("/backtest/optimize-all/run/async", response_model=TaskSubmitResponse, status_code=202)
+async def run_optimize_all_async(
+    req: OptimizeAllBacktestRequest,
+    client: Any = Depends(get_client),
+) -> TaskSubmitResponse:
+    """提交「一键寻优所有策略」后台任务。
+
+    在单个标的上，对所有策略的预设参数网格（见 presets.STRATEGY_PRESETS）依次
+    做网格寻优，取各策略最优点汇总成全局排名。数据获取支持内联 ohlcv 或按
+    symbol 取行情。通过 GET /backtest/tasks/{task_id} 轮询结果。
+    """
+    # 1. 取数据
+    if req.ohlcv is not None:
+        df = _ohlcv_to_df(req.ohlcv)
+        desc_bars = f"{len(df)} 根"
+    elif req.symbol is not None:
+        df = await _fetch_bars(client, req.symbol, req.category, 800)
+        desc_bars = f"{req.symbol}"
+        if req.start_date or req.end_date:
+            df = _filter_df_by_date(df, req.start_date, req.end_date)
+    else:
+        raise ValueError("必须提供 ohlcv 或 symbol")
+
+    # 2. 捕获快照
+    snapshot = req.model_copy()
+    description = f"一键寻优全部策略 | {desc_bars}"
+
+    # 3. 提交后台任务
+    runner = get_runner()
+    task_id = runner.submit(
+        lambda: _run_optimize_all(df, snapshot),
+        description=description,
+    )
+    state = runner.get(task_id)
+    status: Any = state.status if state.status in ("pending", "running") else "running"
+    return TaskSubmitResponse(task_id=task_id, status=status)
+
+
 # ── 内部实现 ───────────────────────────────────────────────────────────────────
 
 
@@ -397,6 +441,76 @@ def _run_optimize(df: pd.DataFrame, req: OptimizeBacktestRequest) -> dict[str, A
     )
     result = optimizer.run()
     return result.to_dict()
+
+
+def _run_optimize_all(df: pd.DataFrame, req: OptimizeAllBacktestRequest) -> dict[str, Any]:
+    """对所有策略的预设网格逐策略寻优，汇总成全局排名（后台线程内调用）。
+
+    遍历 ``STRATEGY_PRESETS`` 中每个策略，用其预设参数网格跑
+    :class:`ParamGridOptimizer`，取各策略的最优点（best）组装排名。单个策略
+    无有效结果（如全网格回测失败）则跳过。
+    """
+    from easy_tdx.backtest.optimizer import ParamGridOptimizer
+    from easy_tdx.backtest.strategies import get_registry
+    from easy_tdx.backtest.strategies.presets import STRATEGY_PRESETS
+
+    registry = get_registry()
+    ranking: list[OptimizeAllRankEntry] = []
+    per_strategy: dict[str, OptimizeAllRankEntry] = {}
+    total_grid = 0
+
+    for strategy_name, grid in STRATEGY_PRESETS.items():
+        # 预设里登记但未注册的策略跳过（理论上不应发生）
+        if strategy_name not in registry.names():
+            continue
+        label = registry.get(strategy_name).label
+        try:
+            optimizer = ParamGridOptimizer(
+                strategy_name=strategy_name,
+                param_grid=grid,
+                df=df,
+                cash=req.cash,
+                commission=req.commission,
+                slippage=req.slippage,
+                execution=req.execution,
+            )
+        except ValueError:
+            # 单策略网格超限（不应发生，预设已控制规模）→ 跳过
+            continue
+
+        result = optimizer.run()
+        if result.best is None:
+            continue
+
+        # 该策略本轮真实跑的网格点数（笛卡尔积，去掉失败点后的有效点）
+        total_grid += len(result.results)
+
+        entry = OptimizeAllRankEntry(
+            strategy=strategy_name,
+            strategy_label=label,
+            params=result.best.params,
+            total_return=result.best.total_return,
+            sharpe=result.best.sharpe,
+            max_drawdown=result.best.max_drawdown,
+            total_trades=result.best.total_trades,
+            win_rate=result.best.win_rate,
+            profit_factor=result.best.profit_factor,
+            grid_points=len(result.results),
+        )
+        ranking.append(entry)
+        per_strategy[strategy_name] = entry
+
+    # 按 total_return 降序
+    ranking.sort(key=lambda r: r.total_return, reverse=True)
+    best = ranking[0] if ranking else None
+
+    result_obj = OptimizeAllResult(
+        ranking=ranking,
+        best=best,
+        per_strategy=per_strategy,
+        total_grid_points=total_grid,
+    )
+    return result_obj.model_dump()
 
 
 def _filter_df_by_date(df: pd.DataFrame, start: str | None, end: str | None) -> pd.DataFrame:
