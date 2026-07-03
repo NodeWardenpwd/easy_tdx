@@ -114,7 +114,7 @@ class Param:
             schema["description"] = self.description
         return schema
 
-    def validate(self, value: Any) -> Any:
+    def validate(self, value: Any, *, skip_bounds: bool = False) -> Any:
         """校验并强制转换取值，不合法抛 ValueError。
 
         NaN/Inf 的 float 输入会被拒绝（NaN 绕过所有比较，Inf 仅在有界时被拦，
@@ -150,14 +150,25 @@ class Param:
                 f"参数 '{self.name}' 期望 {self.type.__name__}，得到 {value!r}"
             ) from exc
 
-        if self.choices is not None and self.type is str and converted not in self.choices:
-            raise ValueError(
-                f"参数 '{self.name}' 取值 {converted!r} 不在可选范围 {list(self.choices)} 内"
-            )
-        if self.type in (int, float) and self.min_value is not None and converted < self.min_value:
-            raise ValueError(f"参数 '{self.name}'={converted} 小于下限 {self.min_value}")
-        if self.type in (int, float) and self.max_value is not None and converted > self.max_value:
-            raise ValueError(f"参数 '{self.name}'={converted} 大于上限 {self.max_value}")
+        # skip_bounds=True 时跳过范围/取值集合检查（供寻优器探索超范围值），
+        # 仍保留类型转换 + NaN/Inf 拦截。
+        if not skip_bounds:
+            if self.choices is not None and self.type is str and converted not in self.choices:
+                raise ValueError(
+                    f"参数 '{self.name}' 取值 {converted!r} 不在可选范围 {list(self.choices)} 内"
+                )
+            if (
+                self.type in (int, float)
+                and self.min_value is not None
+                and converted < self.min_value
+            ):
+                raise ValueError(f"参数 '{self.name}'={converted} 小于下限 {self.min_value}")
+            if (
+                self.type in (int, float)
+                and self.max_value is not None
+                and converted > self.max_value
+            ):
+                raise ValueError(f"参数 '{self.name}'={converted} 大于上限 {self.max_value}")
         return converted
 
 
@@ -180,10 +191,11 @@ class ParametrizedStrategy(Strategy):
     # 实例属性：已校验的参数值字典（init/next 中通过 self.p[name] 访问）。
     p: dict[str, Any]
 
-    def __init__(self, **kwargs: Any) -> None:
+    def __init__(self, *, skip_bounds: bool = False, **kwargs: Any) -> None:
         """从 kwargs 构造策略参数。
 
         多余的未知参数抛 ValueError；缺失参数取默认值。
+        skip_bounds=True 时跳过参数范围检查（供寻优器探索超范围值）。
         """
         super().__init__()
         declared = {param.name: param for param in self.params}
@@ -194,7 +206,7 @@ class ParametrizedStrategy(Strategy):
         resolved: dict[str, Any] = {}
         for name, param in declared.items():
             raw = kwargs.get(name, param.default)
-            resolved[name] = param.validate(raw)
+            resolved[name] = param.validate(raw, skip_bounds=skip_bounds)
         self.p = resolved
 
 
@@ -220,9 +232,17 @@ class RegisteredStrategy:
             "params": [p.to_schema() for p in self.params],
         }
 
-    def build(self, params: dict[str, Any] | None = None) -> ParametrizedStrategy:
-        """用给定参数构造策略实例，缺失参数取默认值。"""
-        return self.strategy_cls(**(params or {}))
+    def build(
+        self,
+        params: dict[str, Any] | None = None,
+        *,
+        skip_bounds: bool = False,
+    ) -> ParametrizedStrategy:
+        """用给定参数构造策略实例，缺失参数取默认值。
+
+        skip_bounds=True 时跳过参数范围检查（供寻优器探索超范围值）。
+        """
+        return self.strategy_cls(**(params or {}), skip_bounds=skip_bounds)
 
 
 class StrategyRegistry:

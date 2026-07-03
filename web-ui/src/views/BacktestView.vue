@@ -2,7 +2,8 @@
 // 回测主页面：左配置面板 / 右报告面板。
 // 编排：取行情 → 选策略+参数 → 回测 → 展示 K线+净值+指标+成交。
 
-import { onMounted, ref } from 'vue'
+import { nextTick, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 
 import EquityChart from '../components/EquityChart.vue'
 import KlineChart from '../components/KlineChart.vue'
@@ -14,6 +15,7 @@ import type { ExecutionMode } from '../types'
 import { useBacktestStore } from '../stores/backtest'
 
 const store = useBacktestStore()
+const route = useRoute()
 
 // 表单状态（v-model 给子组件）
 const strategy = ref('ma_cross')
@@ -25,10 +27,27 @@ const execution = ref<ExecutionMode>('next_open')
 
 const EXECUTIONS: ExecutionMode[] = ['next_open', 'next_close', 'this_close', 'worst', 'best']
 
-onMounted(() => {
-  store.loadStrategies().catch((e) => {
+onMounted(async () => {
+  await store.loadStrategies().catch((e) => {
     store.error = `加载策略列表失败：${e instanceof Error ? e.message : e}`
   })
+
+  // 从 URL query 读取寻优页传来的 strategy + params（跳转自动填充）
+  const qStrategy = route.query.strategy as string | undefined
+  const qParams = route.query.params as string | undefined
+  if (qStrategy) {
+    strategy.value = qStrategy
+    // 等待 StrategyPicker 的 watch(selectedSchema) 触发完默认值重置后，
+    // 再用 query 的 params 覆盖，避免被 watch 重置掉
+    await nextTick()
+  }
+  if (qParams) {
+    try {
+      params.value = JSON.parse(qParams) as Record<string, number | string | boolean>
+    } catch {
+      // query 参数解析失败，忽略
+    }
+  }
 })
 
 async function onRun() {

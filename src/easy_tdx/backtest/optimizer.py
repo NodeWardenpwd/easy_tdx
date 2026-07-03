@@ -143,7 +143,7 @@ class ParamGridOptimizer:
         strategy_name: str,
         param_grid: dict[str, list[Any]],
         df: pd.DataFrame,
-        cash: float = 100_000.0,
+        cash: float = 1_000_000.0,
         commission: float = 0.0003,
         min_commission: float = 5.0,
         stamp_tax: float = 0.001,
@@ -181,7 +181,8 @@ class ParamGridOptimizer:
         for combo in itertools.product(*value_lists):
             params = dict(zip(param_names, combo, strict=True))
             try:
-                strategy = entry.build(params)
+                # 寻优时跳过参数范围检查——探索超范围值是寻优的目的
+                strategy = entry.build(params, skip_bounds=True)
                 engine = BacktestEngine(
                     strategy=strategy,
                     cash=self._cash,

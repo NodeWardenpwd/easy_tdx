@@ -1,19 +1,26 @@
 <script setup lang="ts">
 // 结果对比页面：选 2-4 个已完成的回测 task，叠加净值曲线 + 横向指标对比。
+// 支持单标的回测（equity_curve）和组合回测（combined_equity）的混合对比。
 
 import { onMounted, ref, watch } from 'vue'
 
 import CompareChart from '../components/CompareChart.vue'
 import CompareTable from '../components/CompareTable.vue'
 import { fetchTask, fetchTaskList, formatError } from '../api'
-import type { BacktestResult, TaskSummary } from '../types'
+import type { BacktestResult, EquityPoint, TaskSummary } from '../types'
+
+/** 统一的可对比项：无论单标的还是组合，都归一化为 equity + performance。 */
+interface CompareItem {
+  label: string
+  equity: EquityPoint[]
+  performance: Record<string, number>
+}
 
 const taskList = ref<TaskSummary[]>([])
 const loading = ref(false)
 const error = ref('')
 const selectedIds = ref<Set<string>>(new Set())
-// 已加载的详情（task_id → BacktestResult）
-const details = ref<Map<string, { label: string; result: BacktestResult }>>(new Map())
+const details = ref<Map<string, CompareItem>>(new Map())
 
 onMounted(loadTasks)
 
@@ -22,7 +29,6 @@ async function loadTasks() {
   error.value = ''
   try {
     const resp = await fetchTaskList(20)
-    // 只显示已完成的单标的回测（status=done 且 result 是 BacktestResult）
     taskList.value = resp.tasks.filter((t) => t.status === 'done')
   } catch (e) {
     error.value = formatError(e)
@@ -31,37 +37,62 @@ async function loadTasks() {
   }
 }
 
+/** 从 task result 提取可对比的 equity + performance。
+ * 支持单标的（equity_curve/performance）和组合（combined_equity/total_performance）。 */
+function extractComparable(
+  result: Record<string, unknown> | null,
+): { equity: EquityPoint[]; performance: Record<string, number> } | null {
+  if (!result) return null
+  // 单标的回测
+  if (result.performance && result.equity_curve) {
+    return {
+      equity: result.equity_curve as EquityPoint[],
+      performance: result.performance as Record<string, number>,
+    }
+  }
+  // 组合回测
+  if (result.total_performance && result.combined_equity) {
+    return {
+      equity: result.combined_equity as EquityPoint[],
+      performance: result.total_performance as Record<string, number>,
+    }
+  }
+  return null
+}
+
 async function toggle(taskId: string) {
   if (selectedIds.value.has(taskId)) {
     selectedIds.value.delete(taskId)
     details.value.delete(taskId)
   } else {
-    if (selectedIds.value.size >= 4) return // 最多 4 个
+    if (selectedIds.value.size >= 4) return
     selectedIds.value.add(taskId)
-    // 拉详情
     try {
       const state = await fetchTask(taskId)
-      const result = state.result as BacktestResult
-      if (!result?.performance || !result?.equity_curve) {
-        throw new Error('该任务结果不可对比（非单标的回测）')
+      const comparable = extractComparable(state.result as Record<string, unknown> | null)
+      if (!comparable) {
+        throw new Error('该任务结果不含净值曲线（寻优任务等不可对比）')
       }
-      details.value.set(taskId, { label: state.description, result })
+      details.value.set(taskId, { label: state.description, ...comparable })
     } catch (e) {
       selectedIds.value.delete(taskId)
       error.value = e instanceof Error ? e.message : String(e)
     }
   }
-  // 触发响应式
   selectedIds.value = new Set(selectedIds.value)
   details.value = new Map(details.value)
 }
 
 const compareItems = ref<Array<{ label: string; result: BacktestResult }>>([])
 function refreshItems() {
-  compareItems.value = Array.from(details.value.values())
+  // CompareChart/CompareTable 期望 { label, result: BacktestResult }，
+  // 这里把归一化的 equity/performance 包装回去
+  compareItems.value = Array.from(details.value.values()).map((item) => ({
+    label: item.label,
+    result: { equity_curve: item.equity, performance: item.performance } as unknown as BacktestResult,
+  }))
 }
 
-// 监听 details 变化刷新对比项
 watch(details, refreshItems, { deep: true })
 </script>
 

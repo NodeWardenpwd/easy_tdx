@@ -30,8 +30,13 @@ function buildOption(): echarts.EChartsCoreOption {
   const keyIndex = new Map<string, number>()
   keys.forEach((k, i) => keyIndex.set(k, i))
 
-  // x 轴显示：日线只显示日期，分钟线显示日期+时间
-  const isIntraday = keys.some((k) => k.length > 10)
+  // x 轴显示：日线只显示日期 YYYY-MM-DD，分钟线显示 MM-DD HH:mm。
+  // 判断分钟线：datetime 有非零时分秒（日线归一化后是 T00:00:00）。
+  // 不能用 length > 10 判断——日线带 T00:00:00 后缀长度也是 19。
+  const isIntraday = keys.some((k) => {
+    const time = k.slice(11, 19) // HH:MM:SS 部分
+    return time && time !== '00:00:00'
+  })
   const dates = keys.map((k) => (isIntraday ? k.replace('T', ' ').slice(5, 16) : k.slice(0, 10)))
 
   const ohlc = props.bars.map((b) => [b.open, b.close, b.low, b.high])
