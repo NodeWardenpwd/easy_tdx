@@ -1368,6 +1368,8 @@ with MacClient.from_best_host() as c:
 ### 扩展市场
 
 ```python
+from datetime import date
+
 from easy_tdx import MacExClient, ExMarket, Period
 
 with MacExClient.from_best_host() as c:
@@ -1377,7 +1379,10 @@ with MacExClient.from_best_host() as c:
     df = c.goods_quotes([(ExMarket.HK_MAIN_BOARD, "00700")])
     df = c.goods_tick_chart(ExMarket.HK_MAIN_BOARD, "00700")
     df = c.goods_transaction(ExMarket.HK_MAIN_BOARD, "00700", count=100)
+    df = c.goods_transaction_all(ExMarket.HK_MAIN_BOARD, "00700", date(2026, 7, 3))  # 港股当日全部逐笔
 ```
+
+> **逐笔成交排序**：通达信协议为**倒序**——`start=0` 指向最新一笔（收盘方向），`count=2000` 默认只取最近 2000 笔。港股单日成交常达数万笔（如 02715 约 1.3 万笔/日），若需当日全部成交，用 `goods_transaction_all`（仅港股股票类市场，自动按 1800/页翻页取全天，安全上限 9 万条；返回协议原生倒序，需正序展示自行 `df.iloc[::-1]`）。
 
 ### 统一客户端
 
