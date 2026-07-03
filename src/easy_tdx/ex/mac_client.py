@@ -26,6 +26,11 @@ from ..mac.commands.symbol_tick_chart import SymbolTickChartCmd
 from ..mac.commands.symbol_transaction import SymbolTransactionCmd
 from ..mac.enums import Adjust, Period, SortOrder, SortType
 from ..mac.models import MacQuoteField
+from ._hk_transaction import (
+    _fetch_hk_transactions_async,
+    _fetch_hk_transactions_sync,
+    is_hk_stock_market,
+)
 from .commands.get_instrument_count import GetExInstrumentCountCmd
 from .commands.get_instrument_info import GetExInstrumentInfoCmd
 from .commands.login import MacExLoginCmd
@@ -424,7 +429,21 @@ class MacExClient:
             起始偏移。
         count : int
             返回条数。
+
+        Note
+        ----
+        港股股票类市场（HK_MAIN_BOARD/HK_GEM/HK_INDEX/HK_FUND/HK_STOCK_GGT/HK_DARK_POOL，
+        见 :data:`easy_tdx.ex._hk_transaction.HK_STOCK_MARKETS`）走 ex 扩展行情协议
+        （当日 0x23FC / 历史 0x2406），返回价格单位为港元（浮点）。其余扩展市场
+        （美股 / 期货等）走 MAC 协议 0x122F。原因：0x122F 的数据源未接入港股，
+        对港股请求会返回空（issue #14）。不确定市场归属时，可先用
+        :meth:`goods_kline` 探测哪个 market 能取到 K 线。
         """
+        if is_hk_stock_market(market):
+            result = _fetch_hk_transactions_sync(
+                self._execute, market, code, query_date, start, count
+            )
+            return _to_df(result)
         cmd = SymbolTransactionCmd(
             market=market,
             code=code,
@@ -720,6 +739,12 @@ class AsyncMacExClient(AsyncHeartbeatMixin):
         start: int = 0,
         count: int = 2000,
     ) -> pd.DataFrame:
+        """获取逐笔成交数据（异步）。路由说明见同步版 :meth:`goods_transaction`。"""
+        if is_hk_stock_market(market):
+            result = await _fetch_hk_transactions_async(
+                self._execute, market, code, query_date, start, count
+            )
+            return _to_df(result)
         cmd = SymbolTransactionCmd(
             market=market,
             code=code,

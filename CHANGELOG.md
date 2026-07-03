@@ -2,6 +2,20 @@
 
 本文件记录 easy-tdx 的版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [1.17.5] — 2026-07-04
+
+**港股逐笔成交协议路由修复** —— 修复 issue #14：`MacExClient.goods_transaction` 对港股市场（HK 主板 / 创业板 / 指数 / 基金 / 港股通 / 暗盘）返回空。根因是对所有扩展市场统一复用了 A 股 MAC 协议的 `SymbolTransactionCmd`（0x122F），而 0x122F 的数据源未接入港股，服务器对港股 market 一律返回 39 字节空响应（count=0）。改为对港股股票类市场路由到 ex 扩展行情协议（当日 0x23FC / 历史 0x2406），并把整数价格换算为港元浮点。**860 单测全绿**（+22），ruff / mypy strict 通过。
+
+### 修复
+
+- **港股逐笔成交协议路由**（`src/easy_tdx/ex/mac_client.py` 同步 + 异步 `goods_transaction`、新增 `src/easy_tdx/ex/_hk_transaction.py`）—— 港股股票类市场（`HK_STOCK_MARKETS = {27, 31, 48, 49, 71, 98}`，即 HK_INDEX/HK_MAIN_BOARD/HK_GEM/HK_FUND/HK_STOCK_GGT/HK_DARK_POOL）改走 ex 扩展行情协议：`query_date=None` → `GetExTransactionDataCmd`（0x23FC 当日），指定日期 → `GetExHistoryTransactionDataCmd`（0x2406 历史）。返回的 `ExTransactionRecord`（price 为整数、单位 0.001 HKD）映射为与 A 股 `MacTransaction` 一致的 schema（`time/price/vol/trade_count/bs_flag`），价格 ÷1000 换算为港元浮点，与港股分时图 float 价格对齐。count > 1800 时按 1800/页自动分页。其余扩展市场（美股 / 期货等）保持 MAC 0x122F 路径不变。
+- **回归测试**（`tests/unit/test_hk_transaction.py`，新建 +22 例；`tests/fixtures/ex_history_transaction.hex` + `.json`，录制自真实港股 00700 在 2026-07-03 的 0x2406 响应）—— 覆盖：ex 历史 0x2406 响应解析、空响应处理、`ExTransactionRecord → MacTransaction` 字段映射 + 价格换算、`is_hk_stock_market` 市场判定边界（11 个参数化用例）、mock `_execute` 验证路由（港股走 ex / 期货仍走 0x122F）、分页与空停止逻辑。
+
+### 说明
+
+- issue #14 反馈的 `df1`（7/4 周六休市）与 `df2`（7/1 香港回归纪念日休市）返回空属正常休市；真正的 bug 是 `df3`（7/3 开市日 02715，`HK_MAIN_BOARD`）。修复后开市日港股逐笔成交可正常取数。
+- 港股衍生品（HK_FINANCIAL_FUTURES=23 / HK_STOCK_OPTIONS=26 等）不在本次路由范围：期货/期权逐笔语义不同，且 0x122F 对 CFFEX 期货恰好可用，保持现状避免回归。
+
 ## [1.17.4] — 2026-07-04
 
 **Web UI 回测交互重构 + 一键寻优全策略** —— 针对单标的 / 组合 / 寻优四个页面做交互精简与能力补强：取行情整合进「开始回测」一键完成、市场选择改为 6 位代码智能识别、成交价精简为开盘价/收盘价、初始资金统一为 100 万、新增 18 策略预设参数网格与「一键寻优所有策略」全局排名。**838 单测全绿**（+2），ruff / mypy strict / vue-tsc 全部通过。
