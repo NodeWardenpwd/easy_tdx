@@ -10,19 +10,32 @@
 
 - **后端同源托管前端 dist**（`src/easy_tdx/web/app.py`）—— `_resolve_web_dist_dir()` 三级探测（环境变量 → PyInstaller `_MEIPASS/web_dist` → 仓库根 `web-ui/dist`），在所有 API 路由注册后 `app.mount("/", StaticFiles(..., html=True))`。开发态可缺省（仅 API），打包态同源服务前端。**前置条件**：此前前端 Vite 单独跑、靠 CORS 跨端口，老人无法双进程操作；现单进程同源解决。
 - **`--open-browser` 启动选项**（`src/easy_tdx/cli/cmd_web.py`）—— uvicorn 启动后 `threading.Timer(1.5, ...)` 延迟开浏览器（等端口就绪），默认开、`--no-open-browser` 关闭、`--reload` 模式禁用（开发态不抢焦点）。
-- **PyInstaller 打包入口**（`src/easy_tdx/__main__.py` + `easy_tdx.spec`）—— `python -m easy_tdx` 等价 CLI；无参数时默认走 `serve`。`.spec` 用 `--onefile` + `console=False`（无黑窗）+ `collect_submodules('uvicorn' / 'easy_tdx' / 'pandas' / 'numpy')` 收集动态 import + 前端 dist 打到 `web_dist`。
+- **PyInstaller 打包入口**（`src/easy_tdx/__main__.py` + `easy_tdx.spec`）—— `python -m easy_tdx` 等价 CLI；无参数时默认走 `serve`。`.spec` 用 `--onefile` + `console=False`（无黑窗）+ `collect_submodules('uvicorn' / 'easy_tdx')` 收集动态 import + 前端 dist 打到 `web_dist`。
 - **GitHub Actions 发版工作流**（`.github/workflows/release.yml`）—— `v*` tag 触发，`windows-latest` 构建前端 + EXE，重命名为 `easy-tdx-<版本>-windows.exe`，`softprops/action-gh-release` 上传。与 `publish.yml`（PyPI）完全独立并行，PyPI 失败不影响 EXE 发布。
+- **系统托盘图标**（`src/easy_tdx/tray.py`）—— 打包态双击 EXE 后右下角任务栏出现 K 线风格图标，右键"打开浏览器 / 退出"可干净关闭，老人无需学任务管理器。
 - **打包使用文档**（`docs/packaging.md`）—— 老人下载/运行/绕过 SmartScreen 图文说明 + 开发者本地构建步骤 + Phase 1/2/3 路线图。
 
 ### 已知约束（非 bug）
 
-- **EXE 未签名，SmartScreen 会拦截** —— 老人首次运行需手动"更多信息 → 仍要运行"。这是 Phase 1 的明确取舍（你已确认"先打未签名包自测"），Phase 2 引入 OV/EV 代码签名证书后消除。
+- **EXE 未签名，SmartScreen 会拦截** —— 老人首次运行需手动"更多信息 → 仍要运行"。这是 Phase 1 的明确取舍，Phase 2 引入 OV/EV 代码签名证书后消除。
 - **EXE 体积 80-150MB** —— pandas/numpy/uvicorn/Vue dist 全量打包的必然结果。`--onefile` 首次启动解压需 2-5 秒。
 - **离线 .day 读取需要通达信** —— 老人若未安装 Windows 版通达信，离线读取本地数据功能不可用；在线行情不受影响。
 
-### 修复（打包过程暴露的既有 bug）
+### 文档
 
-- **K 线残缺尾记录导致 500**（`src/easy_tdx/commands/security_bars.py`）—— 通达信服务器偶发返回的 `ret_count`（K 线条数）字段与 body 实际字节数不匹配（pytdx/mootdx 均有同类报告），循环到中途 `pos` 读到底，下一条 datetime 解析抛 `TdxDecodeError: day datetime: 数据不足`，整批数据 500。实测日志证据：SH600519 首次请求 500、重试即 200，同一只股票时好时坏。改为把 `TdxDecodeError` 当记录边界——`try/except` 包住单条记录解析，异常时 `break` 退出循环，丢弃残缺尾记录，返回已成功解析的完整记录（少几根 K 线比整批 500 好）。`GetIndexBarsCmd`（指数 K 线）同改。`tests/unit/test_decode_errors.py` 加 4 个回归测试守卫。**此 bug 与 PyInstaller 打包无关**，是项目既有问题，只是打包版运行更频繁把它暴露了出来。
+- **README + 上手手册大改** —— 删除"两个终端 + npm run dev + 5173"的过时流程，改为三档分流：① 下载 EXE（零基础首选）② 装 Python 一条命令启动（会点电脑的）③ 源码运行 + 自己打包（开发者）。手册补虚拟环境配置、EXE 打包附录、EXE 排错 FAQ。
+
+## [1.18.3] — 2026-07-06
+
+**K 线响应截断容错 + 一键寻优并发默认值优化** —— 两个小修复合并发布。(1) 修复 `000408` 等标的请求 `count=800` 日线时，TDX 服务端返回截断响应（响应头声称有数据但 body 末尾若干条记录被切掉）导致整页 500 的问题：解析器现在丢弃残缺的末条记录，返回已成功解析的前 N-1 条，避免一条坏数据让整页请求失败。(2) 一键寻优并发默认值从「串行」改为「8 进程」，并把用户选择持久化到 `localStorage`，下次以其最后一次选择为默认。
+
+### 修复
+
+- **K 线响应截断容错**（`src/easy_tdx/commands/security_bars.py`）—— `GetSecurityBarsCmd` / `GetIndexBarsCmd` 的 `parse_response` 在逐条解析时，若某条记录的 datetime/price/volume 字段因数据不足抛 `TdxDecodeError`，改为丢弃残缺的末条并返回已成功解析的前若干条（记 warning 日志），而非整体抛 500。仅当连第一条都无法解析时才继续抛错（说明是真正的坏包而非尾部截断）。覆盖日线/分钟线/指数 K 线全部分支。
+
+### 变更
+
+- **一键寻优并发默认 8 进程 + 持久化**（`web-ui/src/views/OptimizeView.vue`）—— 「一键寻优并发」工作进程默认值从串行（0）改为 8 进程；用户修改后写入 `localStorage`（key `optimize.workers`），下次打开以其最后一次选择为默认。无历史记录或值非法时回退默认 8；`localStorage` 不可用时（隐私模式等）静默回退，不影响使用。
 
 ## [1.18.2] — 2026-07-06
 
