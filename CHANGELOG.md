@@ -2,6 +2,14 @@
 
 本文件记录 easy-tdx 的版本变更。格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/)。
 
+## [1.19.6] — 2026-07-07
+
+**修复 EXE 丢失所有第三方依赖（pandas/numpy/uvicorn 等）** —— v1.19.5 的 EXE 只有 11MB（正常 44MB），双击报 `ModuleNotFoundError: No module named 'pandas'`。根因：`release.yml` 的步骤顺序是先 `pip install -e ".[web,packaging]"` 再 `Build frontend`，但 `pyproject.toml` 的 `force-include` 要求 `web-ui/dist` 在 `pip install` 时就存在——install 阶段 dist 不存在导致 editable install 静默降级，PyInstaller 收集不到第三方包。修复：调换 `release.yml` 步骤顺序，先 `npm run build` 再 `pip install`。
+
+### 修复
+
+- **release.yml 步骤顺序**（`.github/workflows/release.yml`）—— `Build frontend` 移到 `Install Python deps` 之前，确保 `pip install -e .` 时 `web-ui/dist` 已存在。
+
 ## [1.19.5] — 2026-07-07
 
 **修复 PyPI 安装后 `localhost:8000` 返回 404** —— `pip install easy-tdx[web]` 后启动 `easy-tdx serve`，浏览器打开 `localhost:8000` 直接 404。根因：PyPI wheel 不含前端 dist（只有 Python 包），`_resolve_web_dist_dir()` 三级探测全失败返回 None，StaticFiles 不挂载。v1.19.2 的 MIME 修复、v1.19.3 的 SPA fallback 都只对 EXE 打包态生效——PyPI 安装态连 dist 都没有，更谈不上 MIME 或 SPA。

@@ -31,18 +31,19 @@ jobs:
           cache: "npm"
           cache-dependency-path: web-ui/package-lock.json
 
-      # 安装后端（含 [web,packaging] extras：fastapi/uvicorn + pystray/Pillow）
-      - name: Install Python deps
-        run: |
-          pip install -e ".[web,packaging]"
-          pip install pyinstaller
-
-      # 构建前端 → web-ui/dist/，spec 把它打到 EXE 内的 web_dist/
+      # 构建前端 → web-ui/dist/。必须在 pip install 前：pyproject.toml 的
+      # force-include 要求 web-ui/dist 存在，否则 pip install -e . 报错。
       - name: Build frontend
         run: |
           npm ci
           npm run build
         working-directory: web-ui
+
+      # 安装后端（含 [web,packaging] extras：fastapi/uvicorn + pystray/Pillow）
+      - name: Install Python deps
+        run: |
+          pip install -e ".[web,packaging]"
+          pip install pyinstaller
 
       - name: Build EXE
         run: pyinstaller easy_tdx.spec --noconfirm
